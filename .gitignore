@@ -12,3 +12,6 @@ data/processed/_*
 
 # 方程式リストから生成（src/parse_equations.py で再生成できる）
 data/processed/equations.json
+
+# ESRI から取得した統計表（src/fetch_sna.py で再取得できる）
+data/raw/*.xlsx
