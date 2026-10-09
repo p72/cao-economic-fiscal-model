@@ -15,3 +15,4 @@ data/processed/equations.json
 
 # ESRI から取得した統計表（src/fetch_sna.py で再取得できる）
 data/raw/*.xlsx
+data/processed/baseline.pkl
