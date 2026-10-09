@@ -93,12 +93,15 @@ def build() -> dict[str, float]:
     d["M_YCVPOST"] = fy("ffm2", "３．企業所得")
     d["M_NIV"] = fy("ffm2", "４．国民所得（要素費用表示）")
     d["M_YCGIV"] = fy("ffm2", "（２）公的企業") + d["M_YCVSELF"]
-    # 配当受取（非企業部門）= 一般政府・家計・対家計民間非営利団体の法人企業の分配所得
-    d["M_YCVDIV"] = fy("ffm2", "ｂ．法人企業の分配所得（受取）") + fy("ffm2", "ｂ．配当（受取）") \
-        + fy("ffm2", "ｂ．配当（受取）", nth=1)
+    # 企業所得（法人企業の分配所得受払前）は分配表の参考行「法人企業所得（法人企業の分配所得、
+    # 海外直接投資に関する再投資収益支払前）」を使い、配当受取（非企業部門）は原典の定義式
+    # M_YCVPRE=M_YCVPOST+M_YCVDIV から逆算する。一般政府・家計・非営利団体の配当受取の合計（13.7兆円）
+    # を使うと、配当を除く財産所得 M_YIVR が大きくなり、金利上昇時の可処分所得の増え方が公表乗数の
+    # 1.4倍になる（参考行を使うと公表値とほぼ一致）
+    d["M_YCVPRE"] = fy("ffm2", "（参考）法人企業所得")
+    d["M_YCVDIV"] = d["M_YCVPRE"] - d["M_YCVPOST"]
     d["M_YIVR"] = d["M_YIV"] - d["M_YCVDIV"]
     d["M_YIVRBASE"] = d["M_YIVR"]
-    d["M_YCVPRE"] = d["M_YCVPOST"] + d["M_YCVDIV"]
     d["M_YCVS"] = d["M_YCVPRE"] - d["M_YCGIV"]  # 法人税課税標準（推計式の定数項から比率≒1）
     d["Z_YTCSV"] = 0.0
 
