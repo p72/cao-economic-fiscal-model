@@ -200,7 +200,7 @@ def build(mode: str = "calibrated", fiscal: str = "simple") -> Model:
         if it["block"] == "socsec" and fiscal == "port":
             for nm, src in FP.socsec_eqs(name, it["section"], it["eqs"]):
                 eqs.append(compile_eq(nm, src))
-                meta[nm] = {"label": it["label"], "block": "socsec", "estimated": False}
+                meta[nm] = {"label": it["label"], "block": "socsec", "estimated": bool(it["stats"])}
             continue
         if it["block"] not in ("population", "macro"):
             continue

@@ -5,7 +5,7 @@
 - 国債・地方債の発行年度別・年限別の積み上げ（約1,400本）は集約した式（BOND）で置き換える。
 - 社会保障ブロックのうち年金（83本）・医療（101本）・介護（39本）は方程式リストの式を使う。
   年齢別・要介護度別の積み上げは、基準年度の給付費 × 費用の指数に集約する（SS_COLLAPSED）。
-  雇用保険・社会扶助などは、財政・マクロブロックが参照する給付・負担だけを簡略な式（SS）で与える。
+  雇用保険・社会扶助（その他10本）も方程式リストの式を使う。
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ PATCH = {
 }
 
 # 社会保障ブロックで移植する節
-SS_SECTIONS = {"年金", "医療", "介護"}
+SS_SECTIONS = {"年金", "医療", "介護", "その他（雇用保険、社会扶助等）"}
 
 # 医療の制度区分
 MED_SYSTEMS = ("HA", "MA", "EH", "NH", "NU")
@@ -80,6 +80,8 @@ PENSION_PATCH = {
                  "S_PPIRCYB*(S_PBPRCMSZ+S_PBPRCMSY)*S_PBPSSRY(-1)))",
     "S_PENRCYA": "S_PENRCYA=@recode(S_PPIRCYB<=1,S_PPIRCYB,@recode(S_PPIRCYB*(S_PENRCMSZ+S_PENRCMSY)*S_PENSSRY(-1)<1,1,"
                  "S_PPIRCYB*(S_PENRCMSZ+S_PENRCMSY)*S_PENSSRY(-1)))",
+    # 雇用保険料: 「S_OUIIPRM$+M_W+M_LW」は単位の違う量の和になるので、積（賃金×雇用者数）の誤植と判断
+    "S_OUIIPRM": "log(S_OUIIPRM)=0.949266*log(S_OUIIPRM$*M_W*M_LW)",
     "S_PBPRCEA": "S_PBPRCEA=@recode(S_PPIRCEB<=1,S_PPIRCEB,@recode(S_PPIRCEB*(S_PBPRCMSZ+S_PBPRCMSY)*S_PBPSSRE(-1)<1,1,"
                  "S_PPIRCEB*(S_PBPRCMSZ+S_PBPRCMSY)*S_PBPSSRE(-1)))",
 }
@@ -105,21 +107,7 @@ BOND = {
     "Z_RRRT": "Z_RRRT=Z_RRR$*B_RRT",
 }
 
-# 雇用保険・社会扶助の給付・負担の簡略版（年金・医療・介護は原典の式を使う）
-SS = {
-    # 雇用保険料: 賃金総額に比例
-    "S_OEIIPRM": "S_OEIIPRM=S_OEIIPRM(-1)*(1+@pch(M_YWIV))",
-    # 雇用保険: 失業等給付は原典の推計式（S_OUIBNFT）、公費負担も原典の式（S_OUIPEBC）
-    "S_OUIBNFT": "S_OUIBNFT=571.1055+0.000992*((M_UR*M_W*M_LF)+(M_UR(-1)*M_W(-1)*M_LF(-1)))/2"
-                 "+0.127302*(d(M_UR*M_LF)+abs(d(M_UR*M_LF)))/2",
-    "S_OUIPEBC": "log(S_OUIPEBC)=0.979428*log(S_OUIPEBC$*S_OUIBNFT)",
-    "S_OEIBNFT": "S_OEIBNFT=S_OEIBNFT(-1)*(1+@pch(S_OUIBNFT))",
-    # 社会扶助: 原典の推計式（S_OSABNFO）。恩給は外生の減少率
-    "S_OSABNFO": "@pch(S_OSABNFO/S_OSACPIG$)=-0.861729*(@pch(M_GDP)+@pch(M_GDP(-1)))/2"
-                 "+1.949649*@movav(@pch(P_POP60OV),5)",
-    "S_OSACPIG$": "S_OSACPIG$=M_CPIG(-1)",
-    "S_OSABNFP": "S_OSABNFP=S_OSABNFP(-1)*(1+S_OSABNFPG$)",
-}
+SS: dict = {}  # 簡略版は残っていない（社会保障ブロックはすべて原典の式）
 
 # 社会保障の簡略版で推計式とみなすもの（アドファクターでベースラインに合わせる）
-SS_ESTIMATED = {"S_OUIBNFT", "S_OUIPEBC", "S_OSABNFO"}
+SS_ESTIMATED: set = set()

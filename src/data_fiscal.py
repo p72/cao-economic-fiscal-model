@@ -246,16 +246,12 @@ def build() -> dict[str, float]:
     d["Z_POPJIDO"] = 1_500.0                # 児童手当の対象児童数（万人、推定）
 
     # 社会保障の簡略版の水準（推定。SNA の社会保障関係の値に近い規模）
-    pension_data(d, pension)
+    pension_data(d)
     medical_care_data(d, medical, care)
-    for k, v in {"S_OEIIPRM": 2_000, "S_OUIBNFT": 1_500, "S_OUIPEBC": employment, "S_OEIBNFT": 2_500,
-                 "S_OSABNFO": 11_000, "S_OSABNFP": 595}.items():
-        d[k] = float(v)
-    d["S_OUIPEBC$"] = d["S_OUIPEBC"] / d["S_OUIBNFT"]
+    other_ss_data(d)
     d["S_EXR"] = 1.0
-    d["S_OSABNFPG$"] = 0.0
     d["S_PUAL$"] = 0.0
-    d["S_OEIERBP$"] = 0.0
+    d["S_OEIERBP$"] = (0.4 + 0.35 + 0.2) / 1.55   # 雇用保険料のうち事業主負担（2024年度の料率）
     for k in ("SH_HOIKUE", "SH_HOIKUL", "SH_KAIGOC", "SH_KAIGOL", "SH_SITOC", "SH_SITOG", "SH_SITOL", "SH_SITOP",
               "SH_YOJIGTOKUREI"):
         d[k] = 0.0
@@ -313,129 +309,175 @@ def build() -> dict[str, float]:
 X2_FIXED = 5_300.0
 
 
-def pension_data(d: dict, state_burden: float) -> None:
+def pension_data(d: dict) -> None:
     """年金ブロック（原典の式）の2024年度の値（10億円、人数は万人）.
 
-    給付費は公的年金の給付総額（約56兆円）を基礎年金と厚生年金（報酬比例部分、共済を含む）に分ける。
-    保険料は厚生年金・共済の保険料率（18.3%）と国民年金保険料（月16,980円）から標準報酬総額などを逆算する。
-    国庫負担は基礎年金拠出金の2分の1。人数・比率は概数（推定）。
+    出典（data/raw/ss_stats_sources.md の A 節）: 社会保障審議会年金数理部会「公的年金財政状況報告―令和6(2024)年度―」
+    （給付費・受給者数・被保険者数・標準報酬総額・保険料収入・国庫負担・拠出金算定対象者数・積立金）、
+    GPIF「2024年度業務概況書」（インカムゲイン）、厚生労働省の令和6・7年度の年金額改定の公表資料。
+    厚生年金の報酬比例部分だけの給付費は公表がないので、制度全体の給付費 − 基礎年金給付費とする。
     """
+    B = 0.1   # 億円 → 10億円
     # 給付
-    d["S_PBPBNFT"], d["S_PENBNFT"], d["S_PPIESSC"] = 24_500.0, 30_500.0, 1_000.0
-    d["S_PBPBNFTN"], d["S_PENBNFTN"] = 3_600.0, 3_600.0
+    d["S_PBPBNFT"] = 254_805 * B              # 基礎年金勘定の給付費
+    d["S_PENBNFT"] = (553_401 - 254_805) * B  # 制度全体 − 基礎年金
+    d["S_PPIESSC"] = 0.0
+    d["S_PBPBNFTN"] = 3_630.2                 # 国民年金（基礎年金）受給者数
+    d["S_PENBNFTN"] = 3_618.9 + 129.6 + 312.9 + 63.5   # 旧厚年・国共済・地共済・私学
     d["S_PBPBNFTA"] = d["S_PBPBNFT"] / d["S_PBPBNFTN"]
     d["S_PENBNFTA"] = d["S_PENBNFT"] / d["S_PENBNFTN"]
     d["S_PBPBNFTNZ"], d["S_PENBNFTNZ"] = d["S_PBPBNFTN"], d["S_PENBNFTN"]
-    # 改定率: マクロ経済スライドの調整率 0.4%（2024年度）、68歳以上（既裁定）の受給者の割合
+    # 改定率: マクロ経済スライドの調整率 −0.4%（令和6・7年度）
     for k in ("S_PBPRCMSZ", "S_PENRCMSZ"):
         d[k] = 0.996
     for k in ("S_PBPRCMSY", "S_PENRCMSY", "S_PBPRCOFZ", "S_PBPRCOFY", "S_PENRCOFZ", "S_PENRCOFY", "S_PPICPIGZ"):
         d[k] = 0.0
-    d["S_PBPRCYA$"] = d["S_PENRCYA$"] = 0.85
+    d["S_PBPRCYA$"] = d["S_PENRCYA$"] = 0.85   # 68歳以上（既裁定）の受給者の割合（推定）
     for k in ("S_PBPSSRY", "S_PENSSRY", "S_PBPSSRE", "S_PENSSRE"):
         d[k] = 1.0
     d["S_PPICPIC$"] = d["S_PPIRMNRA"] = 1.0
-    # 基礎年金拠出金: 特別国庫負担を除いた額を、算定対象者数で各制度に割り振る
-    d["S_PBPDCBC$Z"] = 0.05
+    # 基礎年金拠出金: 基礎年金給付費 − 特別国庫負担（4,366億円）を拠出金算定対象者数（万人）で割り振る
+    d["S_PBPDCBC$Z"] = 4_366 / 254_805
     d["S_PBPDCBC"] = d["S_PBPDCBC$Z"] * d["S_PBPBNFT"]
     d["S_PBPTRBP"] = d["S_PBPBNFT"] - d["S_PBPDCBC"]
-    n = {"EO": 5_000.0, "MP": 60.0, "MC": 120.0, "ML": 330.0, "NP": 1_000.0}
+    n = {"EO": 4_276.2, "MP": 59.6, "MC": 122.9, "ML": 319.8, "NP": 658.7}
     for c, v in n.items():
         d[f"S_P{c}TRBPN"] = v
     d["S_PEOTRBPNZ"], d["S_PMATRBPNZ"], d["S_PNPTRBPNZ"] = n["EO"], n["MC"], n["NP"]
     d["S_PBPTRBPN"] = sum(n.values())
     for c in n:
         d[f"S_P{c}TRBP"] = d["S_PBPTRBP"] * n[c] / d["S_PBPTRBPN"]
-    # 保険料: 標準報酬総額 × 保険料率（労使合計）。国民年金は月額 × 12 × 被保険者数 × 納付率
-    prem = {"EO": 36_000.0, "MP": 600.0, "MC": 1_800.0, "ML": 4_000.0}
-    insp = {"EO": 4_600.0, "MP": 60.0, "MC": 110.0, "ML": 300.0, "NP": 1_400.0}
-    for c, v in prem.items():
-        d[f"S_P{c}IPRM$Z"] = 0.183
-        d[f"S_P{c}IPRM"] = v
-        d[f"S_P{c}RMNR"] = v / 0.183
+    # 保険料収入・標準報酬総額（億円）、被保険者数（万人）
+    prem = {"EO": 363_545, "MP": 5_543, "MC": 13_198, "ML": 34_978}
+    rmnr = {"EO": 2_010_667, "MP": 34_417, "MC": 72_966, "ML": 195_347}
+    insp = {"EO": 4_284.9, "MP": 61.0, "MC": 107.1, "ML": 294.7, "NP": 1_368.0}
+    for c in prem:
+        d[f"S_P{c}IPRM"] = prem[c] * B
+        d[f"S_P{c}RMNR"] = rmnr[c] * B
+        d[f"S_P{c}IPRM$Z"] = prem[c] / rmnr[c]
         d[f"S_P{c}INSPN"] = d[f"S_P{c}INSPNZ"] = insp[c]
         d[f"S_P{c}RMNRA"] = d[f"S_P{c}RMNR"] / insp[c]
     d["S_PNPINSPN"] = d["S_PNPINSPNZ"] = insp["NP"]
-    d["S_PNPIPRMA"] = d["S_PNPIPRMAZ"] = 16_980.0
-    d["S_PNPIPRM"] = 1_300.0
+    d["S_PNPIPRMA"] = d["S_PNPIPRMAZ"] = 16_980.0   # 国民年金保険料月額（円）
+    d["S_PNPIPRM"] = 13_989 * B
     d["S_PNPIPPY$Z"] = d["S_PNPIPRM"] / (d["S_PNPIPRMA"] * 12 * insp["NP"])
-    # 雇主負担（社会保険料のうち事業主分）
+    # 雇主負担: 厚生年金・共済の保険料の労使折半
     d["S_PPIERBG$"] = d["S_PPIERBP$"] = 0.5
     d["S_PPIERBG"] = 0.5 * (d["S_PMCIPRM"] + d["S_PMLIPRM"])
     d["S_PPIERBP"] = 0.5 * (d["S_PEOIPRM"] + d["S_PMPIPRM"])
-    # 公経済負担: 拠出金の2分の1＋その他（拠出金分の5%）。共済の追加費用は残差
+    # 国庫・公経済負担（億円）: 拠出金に対する割合を実額から逆算する（その他の公経済負担は0）。
+    # 共済（国・地方）は拠出金の2分の1とし、残りは追加費用など（S_PMCDCACZ、S_PMLDCALZ）
+    pub = {"EO": 90_957, "MP": 1_231, "MC": 2_610, "ML": 6_505, "NP": 19_685}
     for c, tag in (("EO", "C"), ("MP", "C"), ("MC", "C"), ("ML", "L"), ("NP", "C")):
-        d[f"S_P{c}DCT{tag}$"] = 0.5
-        d[f"S_P{c}DCT{tag}"] = 0.5 * d[f"S_P{c}TRBP"]
-        d[f"S_P{c}DCB{tag}$Z"] = 0.05
-        d[f"S_P{c}DCB{tag}"] = 0.05 * d[f"S_P{c}DCT{tag}"]
+        rate = pub[c] * B / d[f"S_P{c}TRBP"] if c in ("EO", "MP", "NP") else 0.5
+        d[f"S_P{c}DCT{tag}$"] = rate
+        d[f"S_P{c}DCT{tag}"] = rate * d[f"S_P{c}TRBP"]
+        d[f"S_P{c}DCB{tag}$Z"] = 0.0
+        d[f"S_P{c}DCB{tag}"] = 0.0
     d["S_PMPPEBC"] = d["S_PMPDCTC"] + d["S_PMPDCBC"]
-    d["S_PMCPEBC"], d["S_PMLPEBL"] = 200.0, 300.0
+    d["S_PMCPEBC"], d["S_PMLPEBL"] = pub["MC"] * B, pub["ML"] * B
     d["S_PMCDCACZ"] = d["S_PMCPEBC"] - d["S_PMCDCTC"] - d["S_PMCDCBC"]
     d["S_PMLDCALZ"] = d["S_PMLPEBL"] - d["S_PMLDCTL"] - d["S_PMLDCBL"]
-    d["S_PNMPEBC"] = state_burden          # 一般会計の年金給付費（国庫負担）
+    d["S_PNMPEBC"] = (pub["EO"] + pub["NP"]) * B   # 共済を除く国の負担
     d["S_PNMPEBCZ"] = 0.0
-    # 積立金（GPIF・共済、約300兆円）と運用収入
-    d["S_PPIFUND"] = 300_000.0
-    d["S_PPIFUNDBD$"] = 0.25
+    # 積立金（時価、制度全体）と運用収入
+    d["S_PPIFUND"] = 3_060_257 * B
+    d["S_PPIFUNDBD$"] = 0.2764                     # 国内債券の割合（年金積立金全体）
     d["S_PPIFUNDBD"] = d["S_PPIFUND"] * d["S_PPIFUNDBD$"]
     d["S_PPIFUNDOT"] = d["S_PPIFUND"] - d["S_PPIFUNDBD"]
-    d["S_PPIING$"] = 2_500.0 / d["S_PPIFUND"] * 100   # インカムゲイン 約2.5兆円
-    # 運用利回り（%）= 実質利回り × 資本収益率/基準の資本収益率 ＋ CPI上昇率。
-    # 基準の資本収益率 S_PPIPROR$2 は baseline でその年の値に合わせる（data2024 の値から計算）
+    d["S_PPIING$"] = 46_788 / 2_497_821 * 100      # GPIF のインカムゲイン / 運用資産（%）
+    # 運用利回り（%）= 実質利回り × 資本収益率/基準の資本収益率 ＋ CPI上昇率（実質利回りは推定）
     d["S_PPIRTRBD$Z"], d["S_PPIRTROT$Z"] = 0.0, 3.0
     d["S_PPIPROR$2"] = 0.05                 # baseline.make で基準年度の資本収益率に置き換える
 
 
 def medical_care_data(d: dict, medical: float, care: float) -> None:
-    """医療・介護ブロック（原典の式、年齢別は集約）の2024年度の値（10億円、人数は万人）.
+    """医療・介護ブロック（原典の式、年齢別は集約）の値（10億円、人数は万人）.
 
-    制度別の加入者数・給付費は「医療保険に関する基礎資料」の規模に合わせた概数（推定）。
-    国の負担割合は協会けんぽ 16.4%、市町村国保 41%（定率32%＋調整交付金9%）、国保組合 32%、
-    後期高齢者医療は公費5割（国 4/12、地方 2/12）と後期高齢者支援金4割。
-    介護は施設等給付の国20%・地方30%、居宅給付の国25%・地方25%。
-    乗数に効くのは各項目の伸び率なので、制度別の水準は概数でよい。
+    医療（data/raw/ss_stats_sources.md の B 節）: 厚生労働省保険局「医療保険に関する基礎資料〜令和5年度の医療費等の
+    状況〜」の財政構造表（制度別の加入者数、医療給付費の前期調整対象分とそれ以外、公費、総報酬、後期高齢者支援金）。
+    制度横断の令和6年度版は未公表なので令和5年度の値を使う。公費の割合は構造表の実額から計算する。
+    介護（C 節）: 厚生労働省「令和6年度 介護保険事業状況報告（年報）」。
     """
-    # 加入者数（万人）: 全体、65～74歳、40～64歳
-    insp = {"HA": (4_000, 330, 1_500), "MA": (850, 40, 330), "EH": (2_850, 100, 1_050),
-            "NH": (2_350, 1_050, 650), "NU": (270, 30, 100)}
-    # 給付費（10億円）: 0～64歳、65～74歳（前期財政調整前）
-    bnft = {"HA": (5_200, 1_000), "MA": (1_100, 120), "EH": (3_500, 330), "NH": (2_300, 4_200), "NU": (330, 80)}
-    compa = {"HA": 0.80, "MA": 1.30, "EH": 1.20, "NH": 1.0, "NU": 1.0}   # 報酬水準（被用者保険の平均＝1）
+    B = 0.1   # 億円 → 10億円
+    # 加入者数（万人）: 全体、65～74歳、40～64歳（40～64歳は年齢階級別加入者数の合計）
+    insp = {"HA": (3_957, 325, 1_714.6), "MA": (976, 34, 402.1), "EH": (2_809, 100, 1_204.1),
+            "NH": (2_372, 1_039, 773.7), "NU": (260, 31, 111.4)}
+    # 医療給付費（億円）: 前期調整対象分以外（≒65歳未満）、前期調整対象分（≒65～74歳）
+    bnft = {"HA": (52_260, 13_021), "MA": (14_224, 1_189), "EH": (38_669, 3_880),
+            "NH": (32_508, 51_422), "NU": (3_301, 1_319)}
+    # 報酬水準: 総報酬（億円）/ 加入者数 を被用者保険の平均で割る
+    comp = {"HA": 1_030_413, "MA": 329_501, "EH": 973_500}
+    avg = sum(comp.values()) / sum(insp[a][0] for a in comp)
     for a in insp:
         d[f"S_M{a}INSPN"], d[f"S_M{a}INSP6574N"], d[f"S_M{a}INSP4064N"] = map(float, insp[a])
-        d[f"S_M{a}BNFT0064$"], d[f"S_M{a}BNF6574B$"] = map(float, bnft[a])
-        d[f"S_M{a}COMPA$"] = compa[a]
-    d["S_MHADCBC$"], d["S_MNHDCBC$"], d["S_MNHDCBL$"], d["S_MNUDCBC$"] = 0.164, 0.41, 0.09, 0.32
-    d["S_MLEBNFT$"] = 18_000.0
-    d["S_MLEDCBC$"], d["S_MLEDCBL$"], d["S_MLEDCBY$"] = 4 / 12, 2 / 12, 0.40
+        d[f"S_M{a}BNFT0064$"], d[f"S_M{a}BNF6574B$"] = bnft[a][0] * B, bnft[a][1] * B
+        d[f"S_M{a}COMPA$"] = comp[a] / insp[a][0] / avg if a in comp else 1.0
+    # 国保の国・地方の負担割合: 構造表の公費 /（前期財政調整後の給付費＋後期高齢者支援金）。協会けんぽは法定の16.4%
+    adj = {"NH": -32_010, "NU": 498}
+    sup = {"NH": 11_764, "NU": 1_933}
+    base = {a: bnft[a][0] + bnft[a][1] + adj[a] + sup[a] for a in adj}
+    d["S_MHADCBC$"] = 0.164
+    d["S_MNHDCBC$"] = 29_156 / base["NH"]
+    d["S_MNHDCBL$"] = (9_753 + 2_439) / base["NH"]
+    d["S_MNUDCBC$"] = 2_386 / base["NU"]
+    d["S_MLEBNFT$"] = 172_072 * B
+    d["S_MLEDCBC$"] = 55_185 / 172_072
+    d["S_MLEDCBL$"] = (17_048 + 14_326) / 172_072
+    d["S_MLEDCBY$"] = 71_960 / 172_072
     d["S_MYETTCB$"] = 1.0                    # 被用者保険の後期高齢者支援金は全面総報酬割
     d["S_MNRBNFT"] = d["S_MNRINSPN"] = 0.0   # 退職者医療制度は経過措置終了
     d["S_MMICOSTI"] = 1.0
     d["S_MMIRCOFX"] = d["S_MMICPIGZ"] = 0.0
-    # 診療報酬改定率: 賃金と物価の平均を、当年度と前年度で半分ずつ（推定）
+    # 診療報酬改定率: 賃金と物価の平均を、当年度と前年度で半分ずつ（資料に値がないので推定）
     d["S_MMIRCCF$"], d["S_MMICFWG$"], d["S_MMICFPR$"] = 0.5, 1.0, 1.0
     d["S_MMIPEBCA"] = d["S_MMIPEBLA"] = 0.0
-    d["S_MMIPEBK"] = d["S_MMIPEBC"] = medical      # 一般会計の医療給付費
-    d["S_MMIPEBR"] = d["S_MMIPEBL"] = 6_000.0      # 地方の医療給付費負担（推定）
-    d["S_MMIESSC"] = d["S_MMICSSC"] = d["S_MMICSSL"] = 0.0
-    d["S_MMIESSL"] = 1_000.0
-    # 雇主負担: 被用者保険の保険料の半分。共済組合の事業主は政府（私学共済分を除く）
+    d["S_MMIPEBK"] = d["S_MMIPEBC"] = medical      # 一般会計の医療給付費（2024年度決算）
+    d["S_MMIPEBR"] = d["S_MMIPEBL"] = (26_801 + 16_765) * B   # 都道府県・市区町村の公費（構造表）
+    d["S_MMIESSC"] = d["S_MMICSSC"] = d["S_MMIESSL"] = d["S_MMICSSL"] = 0.0
+    # 雇主負担: 被用者保険の保険料の半分。共済組合の事業主は政府（私学共済の保険料の分を除く）
     d["S_MMIERBG$"] = d["S_MMIERBP$"] = 0.5
-    d["S_MMAERBG$"] = 0.85
-    # 介護
-    d["S_CCIBNFF$"], d["S_CCIBNFH$"] = 4_300.0, 8_200.0
+    d["S_MMAERBG$"] = 1 - 3_038 / (6_269 + 19_537 + 3_038)
+    # 介護（億円）: 給付費 111,826 のうち施設 33,722。高額介護サービス費など3費目は施設・居宅の比で配分
+    other3 = 2_916 + 401 + 2_322
+    f = 33_722 * (1 + other3 / (111_826 - other3))
+    d["S_CCIBNFF$"], d["S_CCIBNFH$"] = f * B, (111_826 - f) * B
     d["S_CCICOSTI"] = 1.0
     d["S_CCIRCOFX"] = d["S_CCICPIGZ"] = 0.0
     d["S_CCICFWG$"] = d["S_CCICFPR$"] = 0.5        # 介護報酬改定率: 賃金と物価の平均（推定）
-    d["S_CCIDCFC$"], d["S_CCIDCFL$"], d["S_CCIDCHC$"], d["S_CCIDCHL$"] = 0.20, 0.30, 0.25, 0.25
-    d["S_CCIPINSN$"] = 0.97                  # 第1号被保険者数 / 65歳以上人口
+    d["S_CCIDCFC$"], d["S_CCIDCFL$"], d["S_CCIDCHC$"], d["S_CCIDCHL$"] = 0.20, 0.30, 0.25, 0.25   # 法定
     d["P_POP65OV"] = 3_625.0                 # 65歳以上人口（万人、2024年10月）
+    d["S_CCIPINSN$"] = 3_584 / d["P_POP65OV"]   # 第1号被保険者数（令和7年3月末）/ 65歳以上人口
     d["S_CCITTC$"] = 1.0                     # 第2号保険料の総報酬割
-    d["S_CCIPEBC"] = care                    # 一般会計の介護給付費等
-    d["S_CCIPEBL"] = 3_500.0
-    d["S_CCIESSC"] = d["S_CCICSSC"] = d["S_CCICSSL"] = 0.0
-    d["S_CCIESSL"] = 300.0
+    d["S_CCIPEBC"] = care                    # 一般会計の介護給付費（2024年度決算）
+    d["S_CCIPEBL"] = (17_083 + 14_006) * B   # 都道府県支出金＋市町村一般会計繰入金
+    d["S_CCIESSC"] = d["S_CCICSSC"] = d["S_CCIESSL"] = d["S_CCICSSL"] = 0.0
+
+
+def other_ss_data(d: dict) -> None:
+    """雇用保険・社会扶助（その他10本）の2024年度の値（10億円）.
+
+    出典（data/raw/ss_stats_sources.md の D・E 節）: 財務省「令和6年度決算の説明」労働保険特別会計 雇用勘定、
+    一般会計 恩給関係費。
+    """
+    K = 1e-6  # 千円 → 10億円
+    d["S_OUIBNFT"] = 1_216_539_951 * K       # 失業等給付費
+    d["S_HPLBNFT"] = 794_363_991 * K         # 育児休業給付費
+    d["S_OEIBNFT$"] = 1.0
+    d["S_OEIBNFT"] = d["S_OEIBNFT$"] * d["S_OUIBNFT"] + d["S_HPLBNFT"]
+    d["S_OSDBNFT"] = 404_747_338 * K         # 雇用保険二事業（防衛力強化一般会計への繰入を除く）
+    d["ADJOSDBNFT"] = 0.0
+    # 保険料: 徴収勘定からの繰入（失業等給付分＋育児休業給付分、二事業分）
+    d["S_OUIIPRM"] = (1_668_916_698 + 834_369_750) * K
+    d["S_OSDIPRM"] = 732_792_795 * K
+    d["S_OEIIPRM"] = d["S_OUIIPRM"] + d["S_OSDIPRM"]
+    d["S_OUIIPRM$"] = 1.0                    # 推計式の定数（アドファクターで合わせる）
+    d["S_OUIPEBC"] = 120_412_917 * K         # 国庫負担金（失業等給付分＋育児休業給付分）
+    d["S_OUIPEBC$"] = d["S_OUIPEBC"] / d["S_OUIBNFT"]
+    d["S_OSABNFO"] = 11_000.0                # 社会扶助給付（恩給を除く、SNA ベース、推定）
+    d["S_OSABNFP"] = d["Z_EXPW4"]            # 恩給関係費（2024年度決算）
+    d["S_OSACPIG$"] = 1.0
+    d["S_OSACPIGZ"] = 0.0
 
 
 def calibrate_splits(d: dict, sna: dict) -> dict:
