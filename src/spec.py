@@ -109,7 +109,13 @@ FISCAL = {
     "Z_DEBTAGDP": "Z_DEBTAGDP=Z_DEBTOUT/M_GDPV*100",
 }
 
-# 方程式リストの式を書き換えるもの: {変数名: (元の文字列, 新しい文字列)}。理由は README に記載。
+# モード
+# - "calibrated"（既定）: 公表乗数に合わせた修正を入れる（EQ_FIX と data2024.MODE_PARAMS）
+# - "faithful": 原典の式を書き換えず、公表乗数に合わせて選んだ値も使わない
+MODES = ("calibrated", "faithful")
+
+# 方程式リストの式を書き換えるもの（calibrated のときだけ）: {変数名: (元の文字列, 新しい文字列)}。
+# 理由は README に記載。
 EQ_FIX = {
     # コールレート: テイラー・ルールの今期の変化に直接反応する項（0.246378*d(M_TAYLOR)）を外す。
     # 原典どおりだと政府支出拡大の1年目の上昇が0.24%ptで公表乗数（0.08%pt）の3倍になる。
@@ -132,6 +138,7 @@ DROP = {
 class Model:
     eqs: list[CompiledEq]
     meta: dict = field(default_factory=dict)  # name -> {label, block, estimated}
+    mode: str = "calibrated"
 
     @property
     def endog(self) -> list[str]:
@@ -154,7 +161,9 @@ def expand(name: str, eq: str) -> list[tuple[str, str]]:
     return out
 
 
-def build() -> Model:
+def build(mode: str = "calibrated") -> Model:
+    if mode not in MODES:
+        raise ValueError(f"mode は {MODES} のどれか: {mode}")
     items = json.loads(EQ_JSON.read_text(encoding="utf-8"))
     eqs: list[CompiledEq] = []
     meta: dict = {}
@@ -169,7 +178,7 @@ def build() -> Model:
             raise ValueError(f"{name}: 式が {len(it['eqs'])} 本")
         pdl = [p["coefs"] for p in it["pdl"]]
         src = it["eqs"][0]
-        if name in EQ_FIX:
+        if mode == "calibrated" and name in EQ_FIX:
             old, new = EQ_FIX[name]
             if old not in src:
                 raise ValueError(f"{name}: 書き換え対象「{old}」が式にない")
@@ -186,7 +195,7 @@ def build() -> Model:
     dup = {n for n in names if names.count(n) > 1}
     if dup:
         raise ValueError(f"同じ変数の式が複数: {dup}")
-    return Model(eqs, meta)
+    return Model(eqs, meta, mode)
 
 
 ESTIMATED_FISCAL = {"Z_TYPVC", "Z_TYPVL"}

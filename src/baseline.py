@@ -18,7 +18,8 @@ from solver import Solver
 from spec import Model, build
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "data" / "processed" / "baseline.pkl"
+def out_path(mode: str) -> Path:
+    return ROOT / "data" / "processed" / f"baseline_{mode}.pkl"
 
 BASE_YEAR = 2024
 FIRST, LAST = 2005, 2045
@@ -75,9 +76,9 @@ def dummies(model: Model) -> dict[str, float]:
     return out
 
 
-def make(model: Model | None = None, verbose: bool = True) -> tuple[Model, dict, dict]:
-    m = model or build()
-    d0 = data2024.build()
+def make(model: Model | None = None, verbose: bool = True, mode: str = "calibrated") -> tuple[Model, dict, dict]:
+    m = model or build(mode)
+    d0 = data2024.build(m.mode)
     d0.update(dummies(m))
     allv = set(m.endog) | set(m.exog())
     missing_ex = sorted(v for v in m.exog() if v not in d0 and v != "M_TIME")
@@ -110,13 +111,17 @@ def make(model: Model | None = None, verbose: bool = True) -> tuple[Model, dict,
     return m, data, s.af
 
 
-def main() -> None:
-    m, data, af = make()
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    with OUT.open("wb") as f:
+def main(mode: str = "calibrated") -> None:
+    m, data, af = make(mode=mode)
+    out = out_path(mode)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("wb") as f:
         pickle.dump({"data": data, "af": af}, f)
-    print(f"ベースライン → {OUT}")
+    print(f"ベースライン（{mode}）→ {out}")
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--mode", default="calibrated", choices=["calibrated", "faithful"])
+    main(ap.parse_args().mode)

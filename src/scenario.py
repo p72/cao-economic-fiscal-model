@@ -1,7 +1,7 @@
 """シナリオ: 同じ規模（名目GDPの1%）の消費税減税・所得税減税・公共投資を10年間続けたら.
 
 標準ケース（baseline.py）からの乖離を2026〜2035年度で計算する。
-出力: output/scenario_fiscal.csv、output/scenario_fiscal.png
+出力: output/scenario_fiscal.csv（calibrated）、output/scenario_fiscal_faithful.csv（faithful）
 """
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ from solver import Solver
 from spec import build
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT_CSV = ROOT / "output" / "scenario_fiscal.csv"
 START, N = 2026, 10
 YEARS = list(range(START, START + N))
 
@@ -24,6 +23,12 @@ SCENARIOS = {
     "itax": "所得税減税",
     "pubinv": "公共投資",
 }
+
+
+def out_path(mode: str) -> Path:
+    return ROOT / "output" / ("scenario_fiscal.csv" if mode == "calibrated" else f"scenario_fiscal_{mode}.csv")
+
+
 VARS = {"M_GDP": "pct", "M_CPIG": "pct", "M_PBGAGDPV": "pt", "Z_DEBTAGDP": "pt", "M_CP": "pct", "M_IFP": "pct"}
 
 
@@ -45,9 +50,9 @@ def shock(name: str, data: dict, base: dict) -> None:
             data["M_IGR3"][t] = base["M_IGR3"][t] + 0.5 * dg
 
 
-def run() -> pd.DataFrame:
-    m = build()
-    base, af = SIM.load()
+def run(mode: str = "calibrated") -> pd.DataFrame:
+    m = build(mode)
+    base, af = SIM.load(mode)
     rows = []
     for name, label in SCENARIOS.items():
         data = copy.deepcopy(base)
@@ -61,12 +66,16 @@ def run() -> pd.DataFrame:
                 rows.append({"scenario": name, "label": label, "var": v, "year": t, "period": k + 1, "dev": dev})
         print(f"{label}: 消費税率 {data['Z_RTCIV'][START]*100:.2f}%" if name == "ctax" else label)
     df = pd.DataFrame(rows)
-    OUT_CSV.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(OUT_CSV, index=False)
+    out = out_path(mode)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out, index=False)
     return df
 
 
 if __name__ == "__main__":
-    df = run()
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--mode", default="calibrated", choices=["calibrated", "faithful"])
+    df = run(ap.parse_args().mode)
     pd.set_option("display.width", 200)
     print(df[df.period.isin([1, 3, 5, 10])].pivot_table(index=["var", "label"], columns="period", values="dev").round(2).to_string())

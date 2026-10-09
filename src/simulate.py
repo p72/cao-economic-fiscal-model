@@ -1,7 +1,8 @@
 """公表乗数表と同じ8ケースのショックを与え、標準ケースからの乖離を計算する.
 
 ベースライン（baseline.py）のアドファクターを固定したまま、2026年度（1期目）から5年間を解く。
-出力: output/multipliers.csv（列: case, var, period, model, published）
+出力: output/multipliers.csv（calibrated）、output/multipliers_faithful.csv（faithful）
+      列: case, var, period, model, published
 """
 from __future__ import annotations
 
@@ -11,13 +12,12 @@ from pathlib import Path
 
 import pandas as pd
 
+import baseline as BL
 import published as P
 from solver import Solver
 from spec import build
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = ROOT / "data" / "processed" / "baseline.pkl"
-OUT = ROOT / "output" / "multipliers.csv"
 START, N = 2026, 5
 YEARS = list(range(START, START + N))
 
@@ -26,8 +26,12 @@ PCT = ["M_GDP", "M_CP", "M_IFP", "M_IHP", "M_G", "M_XGS", "M_MGS", "M_FXS", "M_G
 PT = ["M_GAP", "M_RCO", "M_RGB", "M_UR", "M_BCVAGDPV", "TAXAGDP", "M_BGVAGDPV", "M_PBGAGDPV", "Z_DEBTAGDP"]
 
 
-def load():
-    with BASE.open("rb") as f:
+def out_path(mode: str) -> Path:
+    return ROOT / "output" / ("multipliers.csv" if mode == "calibrated" else f"multipliers_{mode}.csv")
+
+
+def load(mode: str = "calibrated"):
+    with BL.out_path(mode).open("rb") as f:
         b = pickle.load(f)
     return b["data"], b["af"]
 
@@ -91,9 +95,9 @@ def run(case: int, model=None, base_data=None, af=None) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["case", "var", "period", "model"])
 
 
-def main() -> pd.DataFrame:
-    m = build()
-    base_data, af = load()
+def main(mode: str = "calibrated") -> pd.DataFrame:
+    m = build(mode)
+    base_data, af = load(mode)
     # 標準ケースがそのまま再現されることを確認する
     chk = run(0, m, base_data, af)
     worst = chk["model"].abs().max()
@@ -101,14 +105,18 @@ def main() -> pd.DataFrame:
     res = pd.concat([run(c, m, base_data, af) for c in P.CASES], ignore_index=True)
     pub = pd.read_csv(P.OUT) if P.OUT.exists() else P.main()
     res = res.merge(pub.rename(columns={"value": "published"}), on=["case", "var", "period"], how="left")
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    res.to_csv(OUT, index=False)
-    print(f"→ {OUT}")
+    out = out_path(mode)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    res.to_csv(out, index=False)
+    print(f"→ {out}")
     return res
 
 
 if __name__ == "__main__":
-    r = main()
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--mode", default="calibrated", choices=["calibrated", "faithful"])
+    r = main(ap.parse_args().mode)
     pd.set_option("display.width", 200)
     for c in P.CASES:
         x = r[(r.case == c) & r["var"].isin(["M_GDP", "M_CPIG", "M_RCO", "M_UR", "M_PBGAGDPV", "Z_DEBTAGDP"])]

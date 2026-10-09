@@ -37,9 +37,31 @@ py src/parse_equations.py      # 方程式リストの構造化
 py src/fetch_sna.py            # 国民経済計算（ESRI_DATA_SKILL を指定）
 py src/fetch_lfs.py            # 労働力調査（ESTAT_API_SKILL を指定）
 py src/published.py            # 公表乗数表の読み取り
-py src/baseline.py             # ベースライン
-py src/simulate.py             # 8ケースの乗数 → output/multipliers.csv
+py src/baseline.py             # ベースライン（--mode faithful で原典どおり）
+py src/simulate.py             # 8ケースの乗数 → output/multipliers.csv（faithful は multipliers_faithful.csv）
+py src/scenario.py             # シナリオ → output/scenario_fiscal.csv（faithful は scenario_fiscal_faithful.csv）
+py src/plot_scenario.py        # 図（--compare で2つのモードを重ねた図）
 ```
+
+## 2つのモード（`--mode`）
+
+| | `calibrated`（既定） | `faithful` |
+|---|---|---|
+| コールレートの式 | `0.246378*d(M_TAYLOR)` の項を外す | 原典どおり |
+| 地方の収支のうち地方債に回る割合 `Z_LGBTH$` | 0.25 | 1（すべて） |
+| 法人課税のうち翌年度に効く割合 `Z_TYCVLAG$` | 0.5 | 0（すべてその年） |
+
+`faithful` は、公表乗数に合わせて選んだ修正を入れない。利払費の半年ずれ（原典の利払費の式と同じ形）、実質政府支出を一定にすること（公表資料の前提）、企業所得の定義（統計の対応づけ）は両方のモードで共通。
+
+公表乗数とのずれ（8ケース×5年の二乗平均、%pt）：
+
+| 変数 | calibrated | faithful |
+|---|---:|---:|
+| 実質GDP | 0.061 | 0.074 |
+| コールレート（⑧を除く） | 0.026 | 0.076 |
+| 基礎的財政収支 | 0.113 | 0.108 |
+| 可処分所得 | 0.144 | 0.122 |
+| 公債等残高比 | 0.248 | 0.862 |
 
 ## 結果：公表乗数表との比較
 
@@ -109,6 +131,12 @@ py src/simulate.py             # 8ケースの乗数 → output/multipliers.csv
 
 ![シナリオ](output/scenario_fiscal.png)
 
+2つのモードの比較（実線 calibrated、破線 faithful）：
+
+![シナリオ（モード比較）](output/scenario_fiscal_compare.png)
+
+実質GDP・物価・基礎的財政収支はモードでほとんど変わらない。公債等残高比は faithful のほうが大きく上がる（10年後に消費税減税で+6.0→+9.2%pt、所得税減税で+4.7→+7.1%pt、公共投資で+4.1→+7.6%pt）。faithful では地方の収支の悪化がすべて地方債の増加になるため。
+
 - 実質GDPは公共投資が1年目+1.1%と最も大きいが、5年目には+0.4%まで縮む。減税は+0.3〜0.6%程度。
 - 消費税減税だけが物価を下げる（1年目−1.5%）。
 - 10年後の公債等残高比はどれも+4〜6%pt。消費税減税は物価が下がって名目GDPが伸びない分、残高比の上昇が最も大きい（+6.0%pt）。
@@ -127,3 +155,4 @@ py src/simulate.py             # 8ケースの乗数 → output/multipliers.csv
 - 2026-10-10 00:49（作業PCの時刻）：原油ケースの差を分析・修正（社会保障基金の現物給付も実質額を外生に。残る差は公表表の実質GDPと需要項目の食い違い）
 - 2026-10-10 00:57（作業PCの時刻）：金利ケースの2年目以降の差を修正（企業所得（分配所得受払前）に分配表の参考行を使い、配当受取を定義式から逆算）
 - 2026-10-10 01:08（作業PCの時刻）：公債等残高を財務省の2024年度末の実績に差し替え（公債等残高比の乗数のずれ 0.269→0.248%pt）
+- 2026-10-10 01:15（作業PCの時刻）：原典どおり（faithful）と公表乗数に合わせた修正あり（calibrated）を `--mode` で切り替えられるようにした

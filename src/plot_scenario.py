@@ -1,4 +1,8 @@
-"""scenario.py の結果を図にする → output/scenario_fiscal.png."""
+"""scenario.py の結果を図にする.
+
+py src/plot_scenario.py             → output/scenario_fiscal.png（calibrated）
+py src/plot_scenario.py --compare   → output/scenario_fiscal_compare.png（実線 calibrated、破線 faithful）
+"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,7 +14,9 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "output" / "scenario_fiscal.csv"
+SRC_F = ROOT / "output" / "scenario_fiscal_faithful.csv"
 OUT = ROOT / "output" / "scenario_fiscal.png"
+OUT_CMP = ROOT / "output" / "scenario_fiscal_compare.png"
 
 plt.rcParams["font.family"] = "Noto Sans JP"
 INK, MUTED, GRID, SURF = "#0b0b0b", "#52514e", "#e4e3df", "#fcfcfb"
@@ -23,8 +29,9 @@ PANELS = [
 ]
 
 
-def main() -> None:
+def main(compare: bool = False) -> None:
     df = pd.read_csv(SRC)
+    dff = pd.read_csv(SRC_F) if compare else None
     fig, axes = plt.subplots(2, 2, figsize=(9, 7.6), facecolor=SURF)
     for ax, (v, title) in zip(axes.flat, PANELS):
         ax.set_facecolor(SURF)
@@ -34,6 +41,9 @@ def main() -> None:
         for label, col in COLORS.items():
             y = x[x["label"] == label].sort_values("year")
             ax.plot(y["year"], y["dev"], color=col, lw=2)
+            if compare:
+                yf = dff[(dff["var"] == v) & (dff["label"] == label)].sort_values("year")
+                ax.plot(yf["year"], yf["dev"], color=col, lw=1.6, ls=(0, (4, 2.5)))
             ax.plot(y["year"].iloc[-1], y["dev"].iloc[-1], "o", color=col, ms=5, mec=SURF, mew=1.5)
             ends.append([y["dev"].iloc[-1], label, col])
         # 線の端のラベル（重ならないように縦にずらす）
@@ -55,17 +65,23 @@ def main() -> None:
             s.set_visible(False)
     fig.suptitle("名目GDPの1%を毎年使うなら、消費税減税・所得税減税・公共投資のどれが効くか",
                  fontsize=12.5, color=INK, x=0.02, ha="left", y=0.985)
-    fig.text(0.02, 0.935, "経済財政モデル（2026年度版）の Python 再現で、標準ケースからの乖離（2026〜2035年度）",
-             fontsize=9, color=MUTED)
+    sub = "経済財政モデル（2026年度版）の Python 再現で、標準ケースからの乖離（2026〜2035年度）"
+    if compare:
+        sub += "。実線＝公表乗数に合わせた修正あり、破線＝原典どおり"
+    fig.text(0.02, 0.935, sub, fontsize=9, color=MUTED)
     fig.text(0.02, 0.012,
              "注：消費税減税は事前の税収減が名目GDPの1%になるよう税率を10%→7.8%に下げる。所得税減税は名目GDPの1%。"
              "公共投資は実質GDPの1%（国・地方1:1）。\n出典：内閣府「経済財政モデル（2026年度版）」をもとに作成した再現モデル"
              "（github.com/p72/cao-economic-fiscal-model）",
              fontsize=7.5, color=MUTED)
     plt.tight_layout(rect=[0, 0.05, 1, 0.92], h_pad=2.0, w_pad=2.5)
-    plt.savefig(OUT, dpi=150, facecolor=SURF)
-    print(f"→ {OUT}")
+    out = OUT_CMP if compare else OUT
+    plt.savefig(out, dpi=150, facecolor=SURF)
+    print(f"→ {out}")
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--compare", action="store_true")
+    main(ap.parse_args().compare)
