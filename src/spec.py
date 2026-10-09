@@ -99,10 +99,12 @@ FISCAL = {
     "M_YIGVLRLWF": "M_YIGVLRLWF=(0.5*M_RAVGL+0.5*M_RAVGL(-1))/100*B_ZLGB(-1)+M_YIGVLRLR",
     "M_YIGVLRLR": "M_YIGVLRLR=M_YIGVLRLR(-1)",
     "M_YIGVFRAWF": "M_YIGVFRAWF=M_YIGVFRAWF(-1)*(1+@pch(M_GDPV))",
-    # 公債等残高 = 国債 + 地方債 + 交付税特会借入金（純借入の累積）。法人課税は決算後に納付される
-    # ため、会計ベースの残高には1年遅れて効く（SNA は発生主義）
-    "Z_GBNML": "Z_GBNML=Z_GBNML(-1)-M_BGCV+(Z_TYCVC-Z_TYCVC(-1))",
-    "B_ZLGB": "B_ZLGB=B_ZLGB(-1)-M_BGLV+(Z_TYCVL-Z_TYCVL(-1))",
+    # 公債等残高 = 国債 + 地方債 + 交付税特会借入金（純借入の累積）。法人課税は中間納付分を除き
+    # 決算後に納付されるため、増減の一部（Z_TYCVLAG$）が会計ベースの残高に1年遅れて効く（SNA は発生主義）
+    "Z_GBNML": "Z_GBNML=Z_GBNML(-1)-M_BGCV+Z_TYCVLAG$*(Z_TYCVC-Z_TYCVC(-1))",
+    # 地方債は地方財政計画で発行額が決まるので、地方の収支の変化は一部（Z_LGBTH$）しか地方債に回らない
+    # （残りは基金などの金融資産の増減）。原典も B_ZLGB=B_ZLGB(-1)+Z_LGB-B_ROPT（発行額−償還額）で積み上げる
+    "B_ZLGB": "B_ZLGB=B_ZLGB(-1)-Z_LGBTH$*(M_BGLV-Z_TYCVLAG$*(Z_TYCVL-Z_TYCVL(-1)))",
     "Z_DEBTOUT": "Z_DEBTOUT=Z_GBNML+B_ZLGB+Z_SPB",
     "Z_DEBTAGDP": "Z_DEBTAGDP=Z_DEBTOUT/M_GDPV*100",
 }
