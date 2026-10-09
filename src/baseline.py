@@ -88,7 +88,9 @@ def make(model: Model | None = None, verbose: bool = True, mode: str = "calibrat
     d0 = data2024.build(m.mode)
     if m.fiscal == "port":
         import data_fiscal
-        d0.update(data_fiscal.build())
+        df = data_fiscal.build()
+        df.update(data_fiscal.calibrate_splits(df, d0))
+        d0.update(df)
         # 調整項・残差・制度変更分は0（標準ケースのアドファクターが同じ役割を果たす）
         for v in m.exog():
             if v not in d0 and re.search(r"(ADJ|ER$|XX$|ADJCH$|^Z_D[A-Z]|^RES)", v):

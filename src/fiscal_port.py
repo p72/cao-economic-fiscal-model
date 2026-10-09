@@ -100,8 +100,10 @@ SS = {
                  "+1.949649*@movav(@pch(P_POP60OV),5)",
     "S_OSACPIG$": "S_OSACPIG$=M_CPIG(-1)",
     "S_OSABNFP": "S_OSABNFP=S_OSABNFP(-1)*(1+S_OSABNFPG$)",
-    # 年金積立金の運用収入（インカムゲイン）: 利付資産 × (長期金利 + 上乗せ)
-    "S_PPIING": "S_PPIING=S_PPIBOND*(M_RGB+S_PPISPR$)/100",
+    # 年金積立金の運用収入（インカムゲイン）: 利付資産 × 平均利回り。平均利回りは国債と同じく、
+    # 借換え・新規投資の分だけ市場金利（長期金利＋上乗せ）にゆっくり近づく
+    "S_PPIRAVG": "S_PPIRAVG=S_PPIRAVG(-1)+(M_RGB+S_PPISPR$-S_PPIRAVG(-1))/Z_MATC$",
+    "S_PPIING": "S_PPIING=S_PPIBOND*S_PPIRAVG/100",
     "S_PPIBOND": "S_PPIBOND=S_PPIBOND(-1)*(1+@pch(M_GDPV))",
 }
 

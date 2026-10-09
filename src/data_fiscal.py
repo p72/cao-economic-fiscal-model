@@ -147,13 +147,20 @@ def build() -> dict[str, float]:
     d["ZP_LGEXIH"] = 56_259 * OKU - d["ZP_LGEXIC"]
     d["ZP_LGEXIT"] = 63_637 * OKU
     d["ZP_LGBR1"], d["ZP_LGBR2"] = 0.0, 4_544 * OKU
-    d["ZP_LGBH$"] = 0.10
-    d["ZP_LGBT$"] = 0.15
+    d["ZP_LGBR2NX"] = d["ZP_LGBR2"]   # 臨時財政対策債（既往債の元利償還金分等）
+    d["ZP_LGDFC"] = 18_000 * OKU      # 財源不足額 1.8兆円（総務省「令和6年度地方財政計画の概要」）
+    # 地方債計画: 一般債・財源対策債の投資的経費に対する比率（臨時財政対策債を除く地方債が計画の値になるように）
     d["ZP_ZAITAIH$"] = d["ZP_ZAITAIT$"] = 0.02
-    d["ZP_LGKIN$"] = 0.06
+    gen = d["ZP_LGB"] - d["ZP_LGBR2"] - (d["ZP_ZAITAIH$"] + d["ZP_ZAITAIT$"]) * d["ZP_LGEXI"]
+    d["ZP_LGBH$"] = 0.4 * gen / d["ZP_LGEXI"]
+    d["ZP_LGBT$"] = 0.6 * gen / d["ZP_LGEXI"]
+    # 不交付団体の基準財政収入額・需要額の比率: 水準超経費の式 (LGKIN-LGKEX)/0.75 が計画の値になるように決める
+    base_in = d["ZP_TXL"] + d["ZP_TTL"] + d["ZP_TXFLT"] + d["ZP_SGTL"]
+    base_ex = d["ZP_LGEXP"] + d["ZP_LGEXSS"] + d["ZP_LGEXI"] + d["ZP_LGEXOH"] + d["ZP_SAISEI"] + d["ZP_CLB"]
     d["ZP_LGKEX$"] = 0.04
+    d["ZP_LGKIN$"] = (d["ZP_SUIJUN"] * 0.75 + d["ZP_LGKEX$"] * base_ex) / base_in
     for k in ("ZP_LGAPPROP", "ZP_LGBADJ", "ZP_LGBCMP", "ZP_LGBOH", "ZP_LGBRESI", "ZP_LGBTC1", "ZP_LGBTC2",
-              "ZP_LGBR2X", "ZP_LGBR2NX", "ZP_CLBER", "ZP_GTLER", "ZP_SGTLER", "ZP_LGBR2NER", "ZP_LGBR2YER",
+              "ZP_LGBR2X", "ZP_CLBER", "ZP_GTLER", "ZP_SGTLER", "ZP_LGBR2NER", "ZP_LGBR2YER",
               "ZP_LGDFCER"):
         d[k] = 0.0
 
@@ -211,7 +218,7 @@ def build() -> dict[str, float]:
     d["Z_CF"] = 39_569 * OKU                # 繰越金
     d["Z_CFB"], d["Z_CFBA"] = 39_569 * OKU, 0.0
     d["Z_RLGFNDX"] = 47_611 * OKU           # 繰入金（基金取崩し）
-    d["Z_LGEXPEX"] = d["Z_LGEXPE"]
+    d["Z_LGEXPEX"] = 0.0   # 外挿期間は前年の伸びで延ばす（外生の水準は使わない）
     d["Z_LGB$"] = d["Z_LGB"] / d["ZP_LGB"]
     d["Z_KEIKAKU"], d["Z_KEIKAKUL"] = 0.0, 1.0   # 計画値ではなく実績の伸び（外挿期間）
     d["Z_KESSANC"], d["Z_KESSANL"] = 0.0, 0.0
@@ -239,10 +246,11 @@ def build() -> dict[str, float]:
                  "S_MNHPEBC": medical * 0.2, "S_MNUPEBC": medical * 0.02, "S_MLEDCBC": medical * 0.08,
                  "S_MMIESSL": 1_000, "S_CCIPEBC": care, "S_CCIPEBL": 3_500, "S_CCIESSL": 300,
                  "S_OUIBNFT": 1_500, "S_OUIPEBC": employment, "S_OEIBNFT": 2_500, "S_OSABNFO": 11_000,
-                 "S_OSABNFP": 100, "S_PPIING": 2_500}.items():
+                 "S_OSABNFP": 595, "S_PPIING": 2_500}.items():
         d[k] = float(v)
     d["S_PPIBOND"] = 100_000.0
     d["S_PPISPR$"] = d["S_PPIING"] / d["S_PPIBOND"] * 100 - 1.1
+    d["S_PPIRAVG"] = d["S_PPIING"] / d["S_PPIBOND"] * 100
     d["S_OUIPEBC$"] = d["S_OUIPEBC"] / d["S_OUIBNFT"]
     d["S_PRICE"] = d["S_MEDP"] = 1.0
     d["S_EXR"] = 1.0
@@ -257,7 +265,9 @@ def build() -> dict[str, float]:
     d["ZP_GBNML2"] = 2_300.0                 # 年金特例公債（財務省資料の注、2024年度末）
     d["Z_GBNML2"] = 1_055_000.0 - d["ZP_GBNML2"]
     # マクロブロックの式で使う値（SNA と会計の差など）
-    d["M_BSSVPEN"] = 62_197.8                # 現金による社会保障給付（SNA、社会保障基金）
+    # 現金による社会保障給付（SNA、社会保障基金）。原典の M_BSSVF の式は政府の支払いを負値で持つ
+    # （M_BSSVF=((-M_BSSVPEN)+…)*(-1)）ので負値で入れる
+    d["M_BSSVPEN"] = -62_197.8
     d["M_TAXCER"] = 80_038.3 - (sum(d[k] for k in ("Z_TXAG", "Z_TXBG", "Z_TXOH", "Z_TXLQR", "Z_TXTBC", "Z_TCIVC",
                                                    "Z_TITX", "Z_INSI")) - d["Z_TXOH"] + d["Z_TTL"] + d["Z_TXCLT"])
     d["M_TAXLER"] = 46_482.9 - d["Z_TXL"]
@@ -267,7 +277,7 @@ def build() -> dict[str, float]:
     d["Z_EXPA2X"] = 100.0                    # 公共事業関係費のうち下水道分の地方補助金（推定）
     d["Z_OTXLMF"] = 57_216 * OKU             # 貸付金元利収入
     d["Z_OTXLMG"] = 63_000 * OKU             # 使用料・手数料、諸収入など（推定）
-    d["B_LGBMAT$"] = 12.0                    # 地方債の元金償還の平均年数（推定）
+    d["B_LGBMAT$"] = 14.0                    # 地方債の元金償還の平均年数（公債費の計画値に合うように推定）
     d["Z_ROPR"] = 0.0
     d["Z_ROPR$"] = 0.35                      # 地方債の元利償還のうち臨時財政対策債の割合（推定）
     d["Z_RRR$"] = 0.35
@@ -279,7 +289,8 @@ def build() -> dict[str, float]:
     d["Z_IG1$"] = 8_505.1 / (d["Z_EXPA1"] + d["Z_EXPB1"] + d["Z_EXPB3"] + d["Z_EXPC1"] + d["Z_EXPX38"])
     d["Z_LGAPPROP"] = 0.0
     # 税外収入のうち経常移転・資本移転に当たる割合（推定）
-    d["M_ZEIGAI$"], d["M_CZEIGAI$"] = 0.30, 0.05
+    # 税外収入のうち経常移転・資本移転に当たる割合（推定。経常移転は M_TRPC の式が SNA に合う水準）
+    d["M_ZEIGAI$"], d["M_CZEIGAI$"] = 0.04, 0.05
     d["Z_JTE$"] = d["Z_JTL$"] = 0.0
     d["Z_EXPW31ADJ$"] = 0.0
     d["Z_LGEXBSH$"] = 1.0
@@ -297,3 +308,110 @@ def build() -> dict[str, float]:
     for k in ("Z_41JYOYO1", "Z_41JYOYO2", "Z_REVOH5X", "Z_REVOH6X", "Z_REVOHADJ", "Z_REVOHADJCH"):
         d.setdefault(k, 0.0)
     return d
+
+
+# 国の一般会計のうち雇用者報酬（人件費）の規模（推定。一般会計の人件費は5兆円台）
+X2_FIXED = 5_300.0
+
+
+def calibrate_splits(d: dict, sna: dict) -> dict:
+    """モデル独自区分の金額を、SNA の一般政府の部門別勘定に合うように推定する（最小二乗法）.
+
+    原典のマクロブロックの振り分けの式（会計の項目 → SNA の集合消費・個別消費・補助金・移転など）の係数は
+    そのまま使い、未知の按分（国のその他一般歳出の内訳、地方の性質別経費の社会保障・教育分など）を、
+    SNA の値（sna、data2024 の値）に合うように決める。統計で決まらない部分は SPLIT の推定割合に近づける。
+    """
+    import numpy as np
+    from scipy.optimize import lsq_linear
+
+    out = {}
+    # ---------- 国: その他一般歳出の内訳 ----------
+    # 人件費（X2）は一般会計の人件費の規模で固定し、残りを推定する
+    x2, x37 = X2_FIXED, 312_768_600 * K   # X37 は電源開発促進税財源のエネルギー対策特会への繰入（決算の税収と同額）
+    out["Z_EXPX2"], out["Z_EXPX37"] = x2, x37
+    keys = ["X31", "X32", "X33", "X34", "X35", "X38"]
+    total = sum(d[f"Z_EXP{k}"] for k in keys + ["X2", "X37"]) - x2 - x37
+    ix = {k: i for i, k in enumerate(keys)}
+    A, b, w = [], [], []
+
+    def row(coefs: dict, rhs: float, weight: float = 1.0):
+        r = np.zeros(len(keys))
+        for k, c in coefs.items():
+            r[ix[k]] = c
+        A.append(r * weight)
+        b.append(rhs * weight)
+
+    fisim_c = sna["M_FCRAR"] + sna["M_FCRLR"]
+    pmc, pmp = d["S_PMCPEBC"], d["S_PMPPEBC"]
+    zeigai = d["Z_REVOH"] - d["Z_REVOH2"]
+    row({"X31": 0.8, "X35": 0.5},
+        -sna["M_CGVCC"] - 0.8 * (x2 - pmc) - x37 + 0.5 * pmp - d["Z_EXPGBOP"] - 0.9 * sna["M_DEPC"] - fisim_c)
+    row({"X31": 0.2},
+        -sna["M_CGVIC"] - 0.2 * (x2 - pmc) - 0.5 * d["Z_EXPW32"] - 0.1 * sna["M_DEPC"])
+    row({"X32": 0.7}, -sna["M_SUBVC"] - d["Z_EXPA4"])
+    row({"X35": 0.3, "X32": 0.1}, -sna["M_TRPC"] + 0.3 * pmp + d["M_ZEIGAI$"] * zeigai)
+    row({"X35": 0.2, "X32": 0.2}, -sna["M_CTRPC"] - d["Z_EXPA5"] + 0.2 * pmp + d["M_CZEIGAI$"] * zeigai)
+    row({k: 1.0 for k in keys}, total, 10.0)
+    # 国庫支出金（地方の決算）との整合: その他の国庫支出金 ≒ 対地方移転 + 児童手当
+    ppt_o = d["Z_PPT"] - (d["Z_EXPW31MED"] + d["Z_EXPW31PUA"] + d["Z_EXPW31POA"]) - d["Z_EXPX1"] \
+        - (d["Z_EXPA2"] + d["Z_EXPB2"] + d["Z_EXPC2"])
+    row({"X33": 1.0}, ppt_o - d["Z_EXPW18"], 0.3)
+    for k in keys:   # 推定割合に近づける弱い条件
+        row({k: 1.0}, d[f"Z_EXP{k}"], 0.05)
+    res = lsq_linear(np.array(A), np.array(b), bounds=(0, np.inf))
+    for k, v in zip(keys, res.x):
+        out[f"Z_EXP{k}"] = float(v)
+    out["Z_EXPX35E"] = out["Z_EXPX35"]
+
+    # ---------- 地方: 性質別経費の社会保障・教育分 ----------
+    lk = ["PS", "PE", "CS", "CE", "TS", "TE", "TG", "BST", "BE", "BSH$"]
+    lix = {k: i for i, k in enumerate(lk)}
+    A, b = [], []
+
+    def lrow(coefs: dict, rhs: float, weight: float = 1.0):
+        r = np.zeros(len(lk))
+        for k, c in coefs.items():
+            r[lix[k]] = c
+        A.append(r * weight)
+        b.append(rhs * weight)
+
+    P = d["Z_LGEXPG"] + d["Z_LGEXPS"] + d["Z_LGEXPE"]
+    C = d["Z_LGEXCG"] + d["Z_LGEXCS"] + d["Z_LGEXCE"]
+    B = d["Z_LGEXBSH"] + d["Z_LGEXBST"]
+    fisim_l = sna["M_FLRAR"] + sna["M_FLRLR"]
+    otx = d["Z_OTXLMG"]
+    w31med = d["Z_EXPW31MED"]
+    ppts = d["Z_EXPW31MED"] + d["Z_EXPW31PUA"] + d["Z_EXPW31POA"]
+    # 集合消費（地方）: PG + 0.1PS + 0.1PE + CG + 0.2CS + 0.3CE = P - 0.9PS - 0.9PE + C - 0.8CS - 0.7CE
+    lrow({"PS": -0.9, "PE": -0.9, "CS": -0.8, "CE": -0.7},
+         -sna["M_CGVCL"] - (P + C + 0.9 * sna["M_DEPL"] + fisim_l - 0.5 * otx))
+    # 個別消費（地方）
+    lrow({"PS": 0.9, "PE": 0.9, "CS": 0.8, "CE": 0.7, "BST": 0.5},
+         -sna["M_CGVIL"] + d["S_PMLPEBL"] - 0.1 * sna["M_DEPL"] - w31med + 0.5 * otx)
+    # 補助金・経常移転（地方）: 補助費等・繰出金（医療・介護の繰出しを除く）の0.3と0.6
+    lrow({"TS": 0.3, "TE": 0.3, "TG": 0.3}, -sna["M_SUBVL"])
+    lrow({"TS": 0.6, "TE": 0.6, "TG": 0.6}, -sna["M_TRPL"])
+    # 社会給付（地方）: CSSVL + BE + 0.5BST + BSH$×(扶助費関係の国庫支出金 − 医療扶助分)
+    lrow({"BE": 1.0, "BST": 0.5, "BSH$": ppts - w31med}, -sna["M_BSSVL"] - sna["M_CSSVL"])
+    # 推定割合に近づける弱い条件
+    prior = {"PS": d["Z_LGEXPS"], "PE": d["Z_LGEXPE"], "CS": d["Z_LGEXCS"], "CE": d["Z_LGEXCE"],
+             "TS": d["Z_LGEXTS"], "TE": d["Z_LGEXTE"], "TG": d["Z_LGEXTG"], "BST": d["Z_LGEXBST"], "BE": 0.0,
+             "BSH$": 1.0}
+    for k, v in prior.items():
+        lrow({k: 1.0}, v, 0.05 if k != "BSH$" else 500.0)
+    ub = np.full(len(lk), np.inf)
+    ub[lix["PS"]] = ub[lix["PE"]] = P
+    ub[lix["CS"]] = ub[lix["CE"]] = C
+    ub[lix["BST"]] = ub[lix["BE"]] = B
+    res = lsq_linear(np.array(A), np.array(b), bounds=(0, ub))
+    x = dict(zip(lk, res.x))
+    out["Z_LGEXPS"], out["Z_LGEXPE"] = x["PS"], x["PE"]
+    out["Z_LGEXPG"] = P - x["PS"] - x["PE"]
+    out["Z_LGEXCS"], out["Z_LGEXCE"] = x["CS"], x["CE"]
+    out["Z_LGEXCG"] = C - x["CS"] - x["CE"]
+    out["Z_LGEXTS"], out["Z_LGEXTE"], out["Z_LGEXTG"] = x["TS"], x["TE"], x["TG"]
+    out["Z_LGEXBST"] = x["BST"]
+    out["Z_LGEXBSH"] = B - x["BST"]
+    out["Z_LGEXBE$"] = x["BE"] / max(B, 1e-9)
+    out["Z_LGEXBSH$"] = x["BSH$"]
+    return out

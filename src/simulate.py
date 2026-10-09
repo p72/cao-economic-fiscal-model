@@ -118,7 +118,7 @@ def hold_real_g(s: Solver, case: int, k: int, t: int, base: dict, exo: set[str],
     for _ in range(n_iter):
         gap_c = (tgt_cg - data["M_CG"][t]) * data["M_PCG"][t]
         gap_i = (tgt_ig - data["M_IG"][t]) * data["M_PIG"][t]
-        if abs(gap_c) + abs(gap_i) < 1e-6:
+        if abs(gap_c) + abs(gap_i) < 0.05:   # 10億円単位で 0.05（GDP比 1e-7）未満なら打ち切る
             break
         data["Z_ADJEXPX31"][t] += 0.5 * gap_c
         data["Z_ADJLGEXCG"][t] += 0.5 * gap_c

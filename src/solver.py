@@ -93,6 +93,8 @@ class Solver:
         初期値に戻して、同時に解く必要のあるブロックをブロック全体のニュートン法で解く。
         """
         swap = swap or {}
+        if getattr(self.m, "fiscal", "simple") == "port":
+            tol = max(tol, 1e-9)
         order = [(eq, swap.get(eq.name, eq.name)) for eq in self.ordered
                  if not (eq.name in pinned and eq.name not in swap)]
         start = {v: self.data[v][t] for _, v in order}
