@@ -9,3 +9,6 @@ reference/
 # 調査用の一時ファイル
 data/raw/_*
 data/processed/_*
+
+# 方程式リストから生成（src/parse_equations.py で再生成できる）
+data/processed/equations.json
