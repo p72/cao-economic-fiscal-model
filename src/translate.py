@@ -201,7 +201,7 @@ class Emitter:
             return repr(n.v)
         if isinstance(n, Var):
             self.vars.add(n.name)
-            tt = t if n.lag == 0 else f"({t}{n.lag:+d})"
+            tt = t if n.lag == 0 else f"({t}{-n.lag:+d})"  # lag>0 は過去
             return f"V({n.name!r},{tt})"
         if isinstance(n, Neg):
             return f"(-{self.emit(n.a, t)})"
