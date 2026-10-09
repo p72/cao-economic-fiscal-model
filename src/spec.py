@@ -197,6 +197,11 @@ def build(mode: str = "calibrated", fiscal: str = "simple") -> Model:
             meta[name] = {"label": it["label"], "block": "fiscal", "estimated": bool(it["stats"] or it["pdl"]
                           or _has_coef(it["eqs"][0]))}
             continue
+        if it["block"] == "socsec" and fiscal == "port":
+            for nm, src in FP.socsec_eqs(name, it["section"], it["eqs"]):
+                eqs.append(compile_eq(nm, src))
+                meta[nm] = {"label": it["label"], "block": "socsec", "estimated": False}
+            continue
         if it["block"] not in ("population", "macro"):
             continue
         if fiscal == "simple" and (name in FISCAL or name in DROP):
@@ -228,6 +233,9 @@ def build(mode: str = "calibrated", fiscal: str = "simple") -> Model:
         for nm, eq in FP.BOND.items():
             eqs.append(compile_eq(nm, eq))
             meta[nm] = {"label": "（国債・地方債の集約版）", "block": "bond_simple", "estimated": False}
+        for nm, eq in FP.SS_COLLAPSED.items():
+            eqs.append(compile_eq(nm, eq))
+            meta[nm] = {"label": "（社会保障の年齢別積み上げの集約）", "block": "socsec", "estimated": False}
         for nm, eq in FP.SS.items():
             eqs.append(compile_eq(nm, eq))
             meta[nm] = {"label": "（社会保障の簡略版）", "block": "ss_simple", "estimated": nm in FP.SS_ESTIMATED}

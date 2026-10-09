@@ -28,10 +28,6 @@ SPLIT = {
     # その他一般歳出の内訳（施設費・義務教育・社会保障以外）
     "exp_x": {"X2": 0.17, "X31": 0.30, "X32": 0.18, "X33": 0.12, "X34": 0.05, "X35": 0.08, "X37": 0.04, "X38": 0.06},
     # 地方の性質別経費のうち社会保障・教育の割合
-    "lg_p": {"S": 0.10, "E": 0.45},     # 人件費
-    "lg_c": {"S": 0.15, "E": 0.20},     # 物件費・維持補修費
-    "lg_t": {"S": 0.30, "E": 0.10},     # 補助費等・繰出金（医療・介護の繰出しを除く）
-    "lg_i": {"S": 0.05, "E": 0.15},     # 投資的経費
     "lg_f": {"S": 0.05, "E": 0.02},     # 投資及び出資金・貸付金
 }
 
@@ -184,35 +180,50 @@ def build() -> dict[str, float]:
     d["Z_TXFLT"] = 0.0
     d["Z_TTL$"] = (d["Z_TTL"]) / d["Z_TITX"]
     d["Z_TTL2"] = 0.0
-    # 歳出（性質別、億円）
+    # 歳出（性質別、億円）。社会保障分（民生費＋衛生費）と教育分（教育費）は地方財政白書（令和8年版）の
+    # 目的別歳出の性質別内訳（第30図 民生費、第34図 教育費、第41図 衛生費、純計）と第9表（性質別）から。
+    # https://www.soumu.go.jp/menu_seisaku/hakusyo/chihou/r08data/2026data/r08czb01-04.html
+    # 第30図の扶助費は CSV で「18,905」となっているが、合計からの逆算（180,904）と構成比55.3%に合う値を使う
+    W = {"min": {"扶助": 180_904, "繰出": 57_210, "補助": 43_275, "人件": 24_438, "物件": 14_578, "建設": 5_501},
+         "kyo": {"人件": 105_951, "物件": 31_393, "建設補助": 8_231, "建設単独": 17_822, "その他": 30_128},
+         "eis": {"物件": 27_861, "補助": 17_421, "人件": 11_572, "建設": 10_098, "扶助": 5_601}}
     p, bnft, clb = 243_676 * OKU, 192_622 * OKU, 121_807 * OKU
     c = (126_011 + 14_000) * OKU            # 物件費＋維持補修費（維持補修費は推定）
-    t = (122_661 + 64_000) * OKU            # 補助費等＋繰出金（繰出金は推定）
+    t = (122_661 + 58_896) * OKU            # 補助費等＋繰出金（第9表）
     inv = 164_814 * OKU
     f = 62_000 * OKU                         # 投資及び出資金・貸付金（推定）
     tm = 48_366 * OKU                        # 積立金
-    for key, val, lab in (("lg_p", p, "P"), ("lg_c", c, "C"), ("lg_f", f, "F")):
-        s = SPLIT[key]
-        d[f"Z_LGEX{lab}S"], d[f"Z_LGEX{lab}E"] = val * s["S"], val * s["E"]
-        d[f"Z_LGEX{lab}G"] = val * (1 - s["S"] - s["E"])
-    d["Z_LGEXIR"] = 25_000 * OKU            # 医療保険給付関係費（国保・後期高齢者への繰出し等、推定）
-    d["Z_LGEXKG"] = 18_000 * OKU            # 介護保険給付関係費（推定）
-    t_rest = t - d["Z_LGEXIR"] - d["Z_LGEXKG"]
-    s = SPLIT["lg_t"]
-    d["Z_LGEXTS"], d["Z_LGEXTE"], d["Z_LGEXTG"] = t_rest * s["S"], t_rest * s["E"], t_rest * (1 - s["S"] - s["E"])
-    # 扶助費: 補助事業分・単独事業分（推定）
-    d["Z_LGEXBSH"] = bnft * 0.70
-    d["Z_LGEXBST"] = bnft * 0.30
+    # 人件費・物件費
+    d["Z_LGEXPS"] = (W["min"]["人件"] + W["eis"]["人件"]) * OKU
+    d["Z_LGEXPE"] = W["kyo"]["人件"] * OKU
+    d["Z_LGEXPG"] = p - d["Z_LGEXPS"] - d["Z_LGEXPE"]
+    d["Z_LGEXCS"] = (W["min"]["物件"] + W["eis"]["物件"]) * OKU
+    d["Z_LGEXCE"] = W["kyo"]["物件"] * OKU
+    d["Z_LGEXCG"] = c - d["Z_LGEXCS"] - d["Z_LGEXCE"]
+    s = SPLIT["lg_f"]
+    d["Z_LGEXFS"], d["Z_LGEXFE"], d["Z_LGEXFG"] = f * s["S"], f * s["E"], f * (1 - s["S"] - s["E"])
+    # 補助費等・繰出金: 民生費の繰出金を医療・介護への繰出しとし、医療・介護に分ける（介護の割合は推定）
+    d["Z_LGEXIR"] = W["min"]["繰出"] * 0.65 * OKU   # 医療保険給付関係費（国保・後期高齢者）
+    d["Z_LGEXKG"] = W["min"]["繰出"] * 0.35 * OKU   # 介護保険給付関係費
+    d["Z_LGEXTS"] = (W["min"]["補助"] + W["eis"]["補助"]) * OKU
+    d["Z_LGEXTE"] = W["kyo"]["その他"] * 0.5 * OKU  # 教育費の「その他」の半分を補助費等・繰出金とみなす（推定）
+    d["Z_LGEXTG"] = t - d["Z_LGEXIR"] - d["Z_LGEXKG"] - d["Z_LGEXTS"] - d["Z_LGEXTE"]
+    # 扶助費: 民生費・衛生費の扶助費を社会保障分、残りを教育費分（就学援助など）とする。
+    # 社会保障分の補助事業分・単独事業分は SNA との整合で推定する（calibrate_splits）
+    bs = (W["min"]["扶助"] + W["eis"]["扶助"]) * OKU
+    d["Z_LGEXBSH"] = bs * 0.70
+    d["Z_LGEXBST"] = bs * 0.30
     d["Z_LGEXBG$"] = 0.0
-    d["Z_LGEXBE$"] = 0.0
-    # 投資的経費: 補助・単独・直轄負担
-    d["Z_LGEXIC"] = 6_000 * OKU
+    d["Z_LGEXBE$"] = (bnft - bs) / bs   # 原典は Z_LGEXBE=Z_LGEXBE$*(Z_LGEXBSH+Z_LGEXBST-…)
+    # 投資的経費: 補助・単独・直轄負担（第9表）、社会保障分・教育分（各図）
+    d["Z_LGEXIC"] = (158_231 - 74_796 - 75_522) * OKU   # 普通建設事業費のうち補助・単独以外（直轄負担など）
     d["Z_LGEXIH"] = (74_796 + 4_309) * OKU
-    s = SPLIT["lg_i"]
     it = inv - d["Z_LGEXIC"] - d["Z_LGEXIH"]
-    d["Z_LGEXITS"], d["Z_LGEXITE"], d["Z_LGEXITG"] = it * s["S"], it * s["E"], it * (1 - s["S"] - s["E"])
-    for k in ("S", "E", "G"):
-        d[f"Z_LGEXIH{k}"] = d["Z_LGEXIH"] * {"S": s["S"], "E": s["E"], "G": 1 - s["S"] - s["E"]}[k]
+    ss_inv = (W["min"]["建設"] + W["eis"]["建設"]) * OKU
+    d["Z_LGEXIHS"], d["Z_LGEXITS"] = ss_inv * 0.5, ss_inv * 0.5
+    d["Z_LGEXIHE"], d["Z_LGEXITE"] = W["kyo"]["建設補助"] * OKU, W["kyo"]["建設単独"] * OKU
+    d["Z_LGEXIHG"] = d["Z_LGEXIH"] - d["Z_LGEXIHS"] - d["Z_LGEXIHE"]
+    d["Z_LGEXITG"] = it - d["Z_LGEXITS"] - d["Z_LGEXITE"]
     d["Z_LGEXTMG"], d["Z_LGEXTMS"], d["Z_LGEXTME"] = tm * 0.8, tm * 0.1, tm * 0.1
     d["Z_LGFND"] = 270_000 * OKU            # 積立金残高（推定）
     d["Z_CF"] = 39_569 * OKU                # 繰越金
@@ -235,26 +246,14 @@ def build() -> dict[str, float]:
     d["Z_POPJIDO"] = 1_500.0                # 児童手当の対象児童数（万人、推定）
 
     # 社会保障の簡略版の水準（推定。SNA の社会保障関係の値に近い規模）
-    d["S_PPIEXPD"] = 56_000.0
-    d["S_MMIEXPD"] = 47_000.0
-    d["S_CCIEXPD"] = 12_000.0
-    for k, v in {"S_PEOIPRM": 36_000, "S_PMCIPRM": 1_800, "S_PMLIPRM": 4_000, "S_PMPIPRM": 600, "S_PNPIPRM": 1_300,
-                 "S_PPIERBG": 3_000, "S_PPIERBP": 18_000, "S_MMIERBG": 1_500, "S_MMIERBP": 11_000,
-                 "S_CCIERBG": 200, "S_CCIERBP": 1_300, "S_MMIIPHH": 22_000, "S_CCIIPHH": 3_500,
-                 "S_OEIIPRM": 2_000, "S_PNMPEBC": pension, "S_PMCPEBC": 200, "S_PMLPEBL": 300,
-                 "S_PMPPEBC": 100, "S_MMIPEBC": medical * 0.6, "S_MMIPEBL": 6_000, "S_MHAPEBC": medical * 0.1,
-                 "S_MNHPEBC": medical * 0.2, "S_MNUPEBC": medical * 0.02, "S_MLEDCBC": medical * 0.08,
-                 "S_MMIESSL": 1_000, "S_CCIPEBC": care, "S_CCIPEBL": 3_500, "S_CCIESSL": 300,
-                 "S_OUIBNFT": 1_500, "S_OUIPEBC": employment, "S_OEIBNFT": 2_500, "S_OSABNFO": 11_000,
-                 "S_OSABNFP": 595, "S_PPIING": 2_500}.items():
+    pension_data(d, pension)
+    medical_care_data(d, medical, care)
+    for k, v in {"S_OEIIPRM": 2_000, "S_OUIBNFT": 1_500, "S_OUIPEBC": employment, "S_OEIBNFT": 2_500,
+                 "S_OSABNFO": 11_000, "S_OSABNFP": 595}.items():
         d[k] = float(v)
-    d["S_PPIBOND"] = 100_000.0
-    d["S_PPISPR$"] = d["S_PPIING"] / d["S_PPIBOND"] * 100 - 1.1
-    d["S_PPIRAVG"] = d["S_PPIING"] / d["S_PPIBOND"] * 100
     d["S_OUIPEBC$"] = d["S_OUIPEBC"] / d["S_OUIBNFT"]
-    d["S_PRICE"] = d["S_MEDP"] = 1.0
     d["S_EXR"] = 1.0
-    d["S_PENQ$"] = d["S_MEDQ$"] = d["S_CAREQ$"] = d["S_SLIDE$"] = d["S_OSABNFPG$"] = 0.0
+    d["S_OSABNFPG$"] = 0.0
     d["S_PUAL$"] = 0.0
     d["S_OEIERBP$"] = 0.0
     for k in ("SH_HOIKUE", "SH_HOIKUL", "SH_KAIGOC", "SH_KAIGOL", "SH_SITOC", "SH_SITOG", "SH_SITOL", "SH_SITOP",
@@ -314,6 +313,131 @@ def build() -> dict[str, float]:
 X2_FIXED = 5_300.0
 
 
+def pension_data(d: dict, state_burden: float) -> None:
+    """年金ブロック（原典の式）の2024年度の値（10億円、人数は万人）.
+
+    給付費は公的年金の給付総額（約56兆円）を基礎年金と厚生年金（報酬比例部分、共済を含む）に分ける。
+    保険料は厚生年金・共済の保険料率（18.3%）と国民年金保険料（月16,980円）から標準報酬総額などを逆算する。
+    国庫負担は基礎年金拠出金の2分の1。人数・比率は概数（推定）。
+    """
+    # 給付
+    d["S_PBPBNFT"], d["S_PENBNFT"], d["S_PPIESSC"] = 24_500.0, 30_500.0, 1_000.0
+    d["S_PBPBNFTN"], d["S_PENBNFTN"] = 3_600.0, 3_600.0
+    d["S_PBPBNFTA"] = d["S_PBPBNFT"] / d["S_PBPBNFTN"]
+    d["S_PENBNFTA"] = d["S_PENBNFT"] / d["S_PENBNFTN"]
+    d["S_PBPBNFTNZ"], d["S_PENBNFTNZ"] = d["S_PBPBNFTN"], d["S_PENBNFTN"]
+    # 改定率: マクロ経済スライドの調整率 0.4%（2024年度）、68歳以上（既裁定）の受給者の割合
+    for k in ("S_PBPRCMSZ", "S_PENRCMSZ"):
+        d[k] = 0.996
+    for k in ("S_PBPRCMSY", "S_PENRCMSY", "S_PBPRCOFZ", "S_PBPRCOFY", "S_PENRCOFZ", "S_PENRCOFY", "S_PPICPIGZ"):
+        d[k] = 0.0
+    d["S_PBPRCYA$"] = d["S_PENRCYA$"] = 0.85
+    for k in ("S_PBPSSRY", "S_PENSSRY", "S_PBPSSRE", "S_PENSSRE"):
+        d[k] = 1.0
+    d["S_PPICPIC$"] = d["S_PPIRMNRA"] = 1.0
+    # 基礎年金拠出金: 特別国庫負担を除いた額を、算定対象者数で各制度に割り振る
+    d["S_PBPDCBC$Z"] = 0.05
+    d["S_PBPDCBC"] = d["S_PBPDCBC$Z"] * d["S_PBPBNFT"]
+    d["S_PBPTRBP"] = d["S_PBPBNFT"] - d["S_PBPDCBC"]
+    n = {"EO": 5_000.0, "MP": 60.0, "MC": 120.0, "ML": 330.0, "NP": 1_000.0}
+    for c, v in n.items():
+        d[f"S_P{c}TRBPN"] = v
+    d["S_PEOTRBPNZ"], d["S_PMATRBPNZ"], d["S_PNPTRBPNZ"] = n["EO"], n["MC"], n["NP"]
+    d["S_PBPTRBPN"] = sum(n.values())
+    for c in n:
+        d[f"S_P{c}TRBP"] = d["S_PBPTRBP"] * n[c] / d["S_PBPTRBPN"]
+    # 保険料: 標準報酬総額 × 保険料率（労使合計）。国民年金は月額 × 12 × 被保険者数 × 納付率
+    prem = {"EO": 36_000.0, "MP": 600.0, "MC": 1_800.0, "ML": 4_000.0}
+    insp = {"EO": 4_600.0, "MP": 60.0, "MC": 110.0, "ML": 300.0, "NP": 1_400.0}
+    for c, v in prem.items():
+        d[f"S_P{c}IPRM$Z"] = 0.183
+        d[f"S_P{c}IPRM"] = v
+        d[f"S_P{c}RMNR"] = v / 0.183
+        d[f"S_P{c}INSPN"] = d[f"S_P{c}INSPNZ"] = insp[c]
+        d[f"S_P{c}RMNRA"] = d[f"S_P{c}RMNR"] / insp[c]
+    d["S_PNPINSPN"] = d["S_PNPINSPNZ"] = insp["NP"]
+    d["S_PNPIPRMA"] = d["S_PNPIPRMAZ"] = 16_980.0
+    d["S_PNPIPRM"] = 1_300.0
+    d["S_PNPIPPY$Z"] = d["S_PNPIPRM"] / (d["S_PNPIPRMA"] * 12 * insp["NP"])
+    # 雇主負担（社会保険料のうち事業主分）
+    d["S_PPIERBG$"] = d["S_PPIERBP$"] = 0.5
+    d["S_PPIERBG"] = 0.5 * (d["S_PMCIPRM"] + d["S_PMLIPRM"])
+    d["S_PPIERBP"] = 0.5 * (d["S_PEOIPRM"] + d["S_PMPIPRM"])
+    # 公経済負担: 拠出金の2分の1＋その他（拠出金分の5%）。共済の追加費用は残差
+    for c, tag in (("EO", "C"), ("MP", "C"), ("MC", "C"), ("ML", "L"), ("NP", "C")):
+        d[f"S_P{c}DCT{tag}$"] = 0.5
+        d[f"S_P{c}DCT{tag}"] = 0.5 * d[f"S_P{c}TRBP"]
+        d[f"S_P{c}DCB{tag}$Z"] = 0.05
+        d[f"S_P{c}DCB{tag}"] = 0.05 * d[f"S_P{c}DCT{tag}"]
+    d["S_PMPPEBC"] = d["S_PMPDCTC"] + d["S_PMPDCBC"]
+    d["S_PMCPEBC"], d["S_PMLPEBL"] = 200.0, 300.0
+    d["S_PMCDCACZ"] = d["S_PMCPEBC"] - d["S_PMCDCTC"] - d["S_PMCDCBC"]
+    d["S_PMLDCALZ"] = d["S_PMLPEBL"] - d["S_PMLDCTL"] - d["S_PMLDCBL"]
+    d["S_PNMPEBC"] = state_burden          # 一般会計の年金給付費（国庫負担）
+    d["S_PNMPEBCZ"] = 0.0
+    # 積立金（GPIF・共済、約300兆円）と運用収入
+    d["S_PPIFUND"] = 300_000.0
+    d["S_PPIFUNDBD$"] = 0.25
+    d["S_PPIFUNDBD"] = d["S_PPIFUND"] * d["S_PPIFUNDBD$"]
+    d["S_PPIFUNDOT"] = d["S_PPIFUND"] - d["S_PPIFUNDBD"]
+    d["S_PPIING$"] = 2_500.0 / d["S_PPIFUND"] * 100   # インカムゲイン 約2.5兆円
+    # 運用利回り（%）= 実質利回り × 資本収益率/基準の資本収益率 ＋ CPI上昇率。
+    # 基準の資本収益率 S_PPIPROR$2 は baseline でその年の値に合わせる（data2024 の値から計算）
+    d["S_PPIRTRBD$Z"], d["S_PPIRTROT$Z"] = 0.0, 3.0
+    d["S_PPIPROR$2"] = 0.05                 # baseline.make で基準年度の資本収益率に置き換える
+
+
+def medical_care_data(d: dict, medical: float, care: float) -> None:
+    """医療・介護ブロック（原典の式、年齢別は集約）の2024年度の値（10億円、人数は万人）.
+
+    制度別の加入者数・給付費は「医療保険に関する基礎資料」の規模に合わせた概数（推定）。
+    国の負担割合は協会けんぽ 16.4%、市町村国保 41%（定率32%＋調整交付金9%）、国保組合 32%、
+    後期高齢者医療は公費5割（国 4/12、地方 2/12）と後期高齢者支援金4割。
+    介護は施設等給付の国20%・地方30%、居宅給付の国25%・地方25%。
+    乗数に効くのは各項目の伸び率なので、制度別の水準は概数でよい。
+    """
+    # 加入者数（万人）: 全体、65～74歳、40～64歳
+    insp = {"HA": (4_000, 330, 1_500), "MA": (850, 40, 330), "EH": (2_850, 100, 1_050),
+            "NH": (2_350, 1_050, 650), "NU": (270, 30, 100)}
+    # 給付費（10億円）: 0～64歳、65～74歳（前期財政調整前）
+    bnft = {"HA": (5_200, 1_000), "MA": (1_100, 120), "EH": (3_500, 330), "NH": (2_300, 4_200), "NU": (330, 80)}
+    compa = {"HA": 0.80, "MA": 1.30, "EH": 1.20, "NH": 1.0, "NU": 1.0}   # 報酬水準（被用者保険の平均＝1）
+    for a in insp:
+        d[f"S_M{a}INSPN"], d[f"S_M{a}INSP6574N"], d[f"S_M{a}INSP4064N"] = map(float, insp[a])
+        d[f"S_M{a}BNFT0064$"], d[f"S_M{a}BNF6574B$"] = map(float, bnft[a])
+        d[f"S_M{a}COMPA$"] = compa[a]
+    d["S_MHADCBC$"], d["S_MNHDCBC$"], d["S_MNHDCBL$"], d["S_MNUDCBC$"] = 0.164, 0.41, 0.09, 0.32
+    d["S_MLEBNFT$"] = 18_000.0
+    d["S_MLEDCBC$"], d["S_MLEDCBL$"], d["S_MLEDCBY$"] = 4 / 12, 2 / 12, 0.40
+    d["S_MYETTCB$"] = 1.0                    # 被用者保険の後期高齢者支援金は全面総報酬割
+    d["S_MNRBNFT"] = d["S_MNRINSPN"] = 0.0   # 退職者医療制度は経過措置終了
+    d["S_MMICOSTI"] = 1.0
+    d["S_MMIRCOFX"] = d["S_MMICPIGZ"] = 0.0
+    # 診療報酬改定率: 賃金と物価の平均を、当年度と前年度で半分ずつ（推定）
+    d["S_MMIRCCF$"], d["S_MMICFWG$"], d["S_MMICFPR$"] = 0.5, 1.0, 1.0
+    d["S_MMIPEBCA"] = d["S_MMIPEBLA"] = 0.0
+    d["S_MMIPEBK"] = d["S_MMIPEBC"] = medical      # 一般会計の医療給付費
+    d["S_MMIPEBR"] = d["S_MMIPEBL"] = 6_000.0      # 地方の医療給付費負担（推定）
+    d["S_MMIESSC"] = d["S_MMICSSC"] = d["S_MMICSSL"] = 0.0
+    d["S_MMIESSL"] = 1_000.0
+    # 雇主負担: 被用者保険の保険料の半分。共済組合の事業主は政府（私学共済分を除く）
+    d["S_MMIERBG$"] = d["S_MMIERBP$"] = 0.5
+    d["S_MMAERBG$"] = 0.85
+    # 介護
+    d["S_CCIBNFF$"], d["S_CCIBNFH$"] = 4_300.0, 8_200.0
+    d["S_CCICOSTI"] = 1.0
+    d["S_CCIRCOFX"] = d["S_CCICPIGZ"] = 0.0
+    d["S_CCICFWG$"] = d["S_CCICFPR$"] = 0.5        # 介護報酬改定率: 賃金と物価の平均（推定）
+    d["S_CCIDCFC$"], d["S_CCIDCFL$"], d["S_CCIDCHC$"], d["S_CCIDCHL$"] = 0.20, 0.30, 0.25, 0.25
+    d["S_CCIPINSN$"] = 0.97                  # 第1号被保険者数 / 65歳以上人口
+    d["P_POP65OV"] = 3_625.0                 # 65歳以上人口（万人、2024年10月）
+    d["S_CCITTC$"] = 1.0                     # 第2号保険料の総報酬割
+    d["S_CCIPEBC"] = care                    # 一般会計の介護給付費等
+    d["S_CCIPEBL"] = 3_500.0
+    d["S_CCIESSC"] = d["S_CCICSSC"] = d["S_CCICSSL"] = 0.0
+    d["S_CCIESSL"] = 300.0
+
+
 def calibrate_splits(d: dict, sna: dict) -> dict:
     """モデル独自区分の金額を、SNA の一般政府の部門別勘定に合うように推定する（最小二乗法）.
 
@@ -363,55 +487,26 @@ def calibrate_splits(d: dict, sna: dict) -> dict:
         out[f"Z_EXP{k}"] = float(v)
     out["Z_EXPX35E"] = out["Z_EXPX35"]
 
-    # ---------- 地方: 性質別経費の社会保障・教育分 ----------
-    lk = ["PS", "PE", "CS", "CE", "TS", "TE", "TG", "BST", "BE", "BSH$"]
-    lix = {k: i for i, k in enumerate(lk)}
-    A, b = [], []
-
-    def lrow(coefs: dict, rhs: float, weight: float = 1.0):
-        r = np.zeros(len(lk))
-        for k, c in coefs.items():
-            r[lix[k]] = c
-        A.append(r * weight)
-        b.append(rhs * weight)
-
-    P = d["Z_LGEXPG"] + d["Z_LGEXPS"] + d["Z_LGEXPE"]
-    C = d["Z_LGEXCG"] + d["Z_LGEXCS"] + d["Z_LGEXCE"]
-    B = d["Z_LGEXBSH"] + d["Z_LGEXBST"]
-    fisim_l = sna["M_FLRAR"] + sna["M_FLRLR"]
+    # ---------- 地方: 扶助費（社会保障分）の補助事業分・単独事業分 ----------
+    # 性質別経費の社会保障分・教育分は白書の統計で決めた（build）。統計で分からない扶助費の補助事業分・
+    # 単独事業分と、社会給付の式の比率 Z_LGEXBSH$ を、地方の個別消費と社会給付（SNA）に合うように決める。
+    bs = d["Z_LGEXBSH"] + d["Z_LGEXBST"]
     otx = d["Z_OTXLMG"]
     w31med = d["Z_EXPW31MED"]
     ppts = d["Z_EXPW31MED"] + d["Z_EXPW31PUA"] + d["Z_EXPW31POA"]
-    # 集合消費（地方）: PG + 0.1PS + 0.1PE + CG + 0.2CS + 0.3CE = P - 0.9PS - 0.9PE + C - 0.8CS - 0.7CE
-    lrow({"PS": -0.9, "PE": -0.9, "CS": -0.8, "CE": -0.7},
-         -sna["M_CGVCL"] - (P + C + 0.9 * sna["M_DEPL"] + fisim_l - 0.5 * otx))
-    # 個別消費（地方）
-    lrow({"PS": 0.9, "PE": 0.9, "CS": 0.8, "CE": 0.7, "BST": 0.5},
-         -sna["M_CGVIL"] + d["S_PMLPEBL"] - 0.1 * sna["M_DEPL"] - w31med + 0.5 * otx)
-    # 補助金・経常移転（地方）: 補助費等・繰出金（医療・介護の繰出しを除く）の0.3と0.6
-    lrow({"TS": 0.3, "TE": 0.3, "TG": 0.3}, -sna["M_SUBVL"])
-    lrow({"TS": 0.6, "TE": 0.6, "TG": 0.6}, -sna["M_TRPL"])
-    # 社会給付（地方）: CSSVL + BE + 0.5BST + BSH$×(扶助費関係の国庫支出金 − 医療扶助分)
-    lrow({"BE": 1.0, "BST": 0.5, "BSH$": ppts - w31med}, -sna["M_BSSVL"] - sna["M_CSSVL"])
-    # 推定割合に近づける弱い条件
-    prior = {"PS": d["Z_LGEXPS"], "PE": d["Z_LGEXPE"], "CS": d["Z_LGEXCS"], "CE": d["Z_LGEXCE"],
-             "TS": d["Z_LGEXTS"], "TE": d["Z_LGEXTE"], "TG": d["Z_LGEXTG"], "BST": d["Z_LGEXBST"], "BE": 0.0,
-             "BSH$": 1.0}
-    for k, v in prior.items():
-        lrow({k: 1.0}, v, 0.05 if k != "BSH$" else 500.0)
-    ub = np.full(len(lk), np.inf)
-    ub[lix["PS"]] = ub[lix["PE"]] = P
-    ub[lix["CS"]] = ub[lix["CE"]] = C
-    ub[lix["BST"]] = ub[lix["BE"]] = B
-    res = lsq_linear(np.array(A), np.array(b), bounds=(0, ub))
-    x = dict(zip(lk, res.x))
-    out["Z_LGEXPS"], out["Z_LGEXPE"] = x["PS"], x["PE"]
-    out["Z_LGEXPG"] = P - x["PS"] - x["PE"]
-    out["Z_LGEXCS"], out["Z_LGEXCE"] = x["CS"], x["CE"]
-    out["Z_LGEXCG"] = C - x["CS"] - x["CE"]
-    out["Z_LGEXTS"], out["Z_LGEXTE"], out["Z_LGEXTG"] = x["TS"], x["TE"], x["TG"]
-    out["Z_LGEXBST"] = x["BST"]
-    out["Z_LGEXBSH"] = B - x["BST"]
-    out["Z_LGEXBE$"] = x["BE"] / max(B, 1e-9)
-    out["Z_LGEXBSH$"] = x["BSH$"]
+    be = d["Z_LGEXBE$"] * bs
+    # 個別消費（地方）のうち扶助費の単独事業分の0.5以外を差し引いたもの
+    rest_cgvil = (0.9 * d["Z_LGEXPS"] + 0.9 * d["Z_LGEXPE"] - d["S_PMLPEBL"] + 0.8 * d["Z_LGEXCS"]
+                  + 0.7 * d["Z_LGEXCE"] + 0.1 * sna["M_DEPL"] + w31med - 0.5 * otx)
+    A = np.array([[0.5, 0.0], [0.5, ppts - w31med], [1.0, 0.0], [0.0, 1.0]])
+    b = np.array([-sna["M_CGVIL"] - rest_cgvil,
+                  -sna["M_BSSVL"] - sna["M_CSSVL"] - be,
+                  0.3 * bs * 0.05, 1.0 * 50.0])
+    A[2] *= 0.05
+    A[3] *= 50.0
+    res = lsq_linear(A, b, bounds=([0, 0], [bs, np.inf]))
+    bst, bsh_ratio = res.x
+    out["Z_LGEXBST"] = float(bst)
+    out["Z_LGEXBSH"] = float(bs - bst)
+    out["Z_LGEXBSH$"] = float(bsh_ratio)
     return out

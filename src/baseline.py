@@ -41,7 +41,7 @@ REAL = {
 PRICE = {
     "M_PGDP", "M_PGDPA", "M_PGDPA2", "M_CPIG", "M_CPIGA", "M_CGPI", "M_CGPIA", "M_PCP", "M_PCPA", "M_PIFP",
     "M_PIHP", "M_PIHPA", "M_PIN", "M_PINA", "M_PCG", "M_PCGA", "M_PIG", "M_PIGA", "M_PDDM", "M_PGDPD",
-    "M_PXGS", "M_PMGS", "M_PNMR", "MWE_WPI", "MUS_WPI", "M_POILD",
+    "M_PXGS", "M_PMGS", "M_PNMR", "MWE_WPI", "MUS_WPI", "M_POILD", "S_PPICPIC$",
 }
 # 一定（金利、比率、率、人数、指数の対数など）
 CONST_PREFIX = ("P_", "M_WT", "M_EQL", "M_EQU", "M_EQC", "Z_RT", "Z_MAT", "M_D0", "M_D1", "M_D2", "M_D8",
@@ -54,8 +54,18 @@ CONST = {
 }
 
 
+# 年金ブロックの改定率・調整率・人数・保険料率など（一定）
+PENSION_CONST = re.compile(r"^S_P(PIRC|BPRC|ENRC|BPSSR|ENSSR|NPRCIP|PICPIGZ|..TRBPN|..INSPN|..BNFTN|"
+                           r"NPIPRMAZ|..DC..\$|..IPRM\$|PI...\$|PIFUNDBD\$|PIRT...\$Z|PIPROR\$2|NPIPPY\$Z)")
+
+# 医療・介護の加入者数・改定率（一定）
+MEDCARE_CONST = re.compile(r"^S_(M..INSP|MY.INSP|CCI.INSN$|MMIRCCF$|CCIRCCF$)")
+
+
 def growth(v: str) -> float:
     if v == "M_TIME":
+        return 0.0
+    if v.startswith("S_P") and PENSION_CONST.match(v) or MEDCARE_CONST.match(v):
         return 0.0
     if v in REAL:
         return G_REAL
@@ -80,6 +90,13 @@ def dummies(model: Model) -> dict[str, float]:
         if v.startswith("M_D") and v.endswith("C") and v[3:5].isdigit():
             out[v] = 1.0
     return out
+
+
+def pension_profit_rate(data: dict, t: int) -> float:
+    """年金積立金の運用収入の式で使う資本収益率（基準年度の値を基準 S_PPIPROR$2 にする）."""
+    x = {v: data[v][t] for v in ("M_YWV", "M_YCVSELF", "M_CCAV", "M_GDPV", "M_TAXV", "M_KFP", "M_PIFP", "M_KFPCFC$")}
+    return ((1 - x["M_YWV"] / (x["M_YWV"] + x["M_YCVSELF"] + x["M_CCAV"])) * (x["M_GDPV"] - x["M_TAXV"])
+            / (x["M_KFP"] * x["M_PIFP"]) - x["M_KFPCFC$"])
 
 
 def make(model: Model | None = None, verbose: bool = True, mode: str = "calibrated",
@@ -112,6 +129,8 @@ def make(model: Model | None = None, verbose: bool = True, mode: str = "calibrat
         data["M_TIME"] = path("M_TIME", 0.0)
         s = Solver(m, data)
         s.solve_year(BASE_YEAR, pinned=known, calibrate_pinned=False)
+        if "S_PPIPROR$2" in d0:
+            d0["S_PPIPROR$2"] = pension_profit_rate(data, BASE_YEAR)
         new = {v: data[v][BASE_YEAR] for v in unknown}
         diff = max(abs(new[v] - guess[v]) / max(abs(guess[v]), 1.0) for v in unknown)
         guess = new

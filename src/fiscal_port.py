@@ -3,8 +3,9 @@
 - 国の一般会計・公共事業関係特別会計・地方財政計画・交付税特会・地方普通会計・その他指標（249本）は
   方程式リストの式をそのまま使う。資料の誤り・欠落と判断したものだけ PATCH で直す。
 - 国債・地方債の発行年度別・年限別の積み上げ（約1,400本）は集約した式（BOND）で置き換える。
-- 社会保障ブロック（1,167本）は移植せず、財政・マクロブロックが参照する給付・負担だけを
-  簡略な式（SS）で与える。
+- 社会保障ブロックのうち年金（83本）・医療（101本）・介護（39本）は方程式リストの式を使う。
+  年齢別・要介護度別の積み上げは、基準年度の給付費 × 費用の指数に集約する（SS_COLLAPSED）。
+  雇用保険・社会扶助などは、財政・マクロブロックが参照する給付・負担だけを簡略な式（SS）で与える。
 """
 from __future__ import annotations
 
@@ -30,6 +31,59 @@ PATCH = {
     "Z_TXBREF": ("Z_TXBREF=Z_TXBG", "資料に定義がない。法人税（Z_TXBG）とする。推定"),
 }
 
+# 社会保障ブロックで移植する節
+SS_SECTIONS = {"年金", "医療", "介護"}
+
+# 医療の制度区分
+MED_SYSTEMS = ("HA", "MA", "EH", "NH", "NU")
+
+# 年齢別・要介護度別・サービス別の積み上げ（使わない。SS_COLLAPSED で集約する）。
+# 乗数のショックでは人口・加入者数・認定率が変わらず、どの区分の一人当たり費用も同じ改定率で伸びるので、
+# 区分ごとの費用を足し上げた給付費は「基準年度の給付費 × 費用の指数」と一致する。
+SS_SKIP = {
+    "S_MAAINSPBBBBN", "S_MLEINSPBBBBN", "S_MNRINSPN", "S_MAAINSP0064N", "S_MAAINSP6574N", "S_MAAINSPN",
+    "S_MAAINSP4064N", "S_MAACOSTBBBBA", "S_MMICOST6064A", "S_MMICOST6569A", "S_MMICOST7074A", "S_MNRCOSTA",
+    "S_MAACOSTBBBB", "S_MLECOST6569", "S_MNRCOST", "S_MAABNFT0064", "S_MLEBNFTBBBB", "S_MNRBNFT",
+    "S_MAABNF6574B", "S_MLEBNFT", "S_CCIBNFF", "S_CCIBNFH",
+    *(f"S_MLECOST{b}A" for b in ("6569", "7074", "7579", "8084", "8589", "9094", "9599", "100O")),
+}
+
+# 集約した給付費の式（原典の積み上げの代わり）
+SS_COLLAPSED = {
+    # 医療: 一人当たり医療費は診療報酬改定率（S_MMIRCCF）で伸びる（原典の S_MaaCOSTbbbbA と同じ）
+    "S_MMICOSTI": "S_MMICOSTI=S_MMICOSTI(-1)*(1+S_MMIRCCF*S_EXR+S_MMIRCOFX)",
+    **{f"S_M{a}BNFT0064": f"S_M{a}BNFT0064=S_M{a}BNFT0064$*S_MMICOSTI" for a in MED_SYSTEMS},
+    **{f"S_M{a}BNF6574B": f"S_M{a}BNF6574B=S_M{a}BNF6574B$*S_MMICOSTI" for a in MED_SYSTEMS},
+    "S_MLEBNFT": "S_MLEBNFT=S_MLEBNFT$*S_MMICOSTI",
+    # 介護: 一人当たり費用は介護報酬改定率（S_CCIRCCF）で伸びる（原典の S_CCICaaaabbcA と同じ）
+    "S_CCICOSTI": "S_CCICOSTI=S_CCICOSTI(-1)*(1+S_CCIRCCF*S_EXR+S_CCIRCOFX)",
+    "S_CCIBNFF": "S_CCIBNFF=S_CCIBNFF$*S_CCICOSTI",
+    "S_CCIBNFH": "S_CCIBNFH=S_CCIBNFH$*S_CCICOSTI",
+}
+
+
+def socsec_eqs(name: str, section: str, eqs: list[str]) -> list[tuple[str, str]]:
+    """社会保障ブロックの項目を (変数名, 式) の並びにする。年齢別の積み上げは除き、制度区分 aa は展開する."""
+    if name in SS_SKIP or section not in SS_SECTIONS or "AAAA" in name:
+        return []
+    src = PENSION_PATCH.get(name, eqs[0] if eqs else "")
+    lhs = src.split("=")[0]
+    if "S_Maa" in lhs:
+        return [(lhs.replace("S_Maa", f"S_M{a}").upper(), src.replace("S_Maa", f"S_M{a}")) for a in MED_SYSTEMS]
+    return [(name, src)]
+
+# 年金の式のうち、資料で行が折り返されて読み取れないもの（注記の続きをつなげて復元）
+PENSION_PATCH = {
+    "S_PPIRCWG": "S_PPIRCWG=S_PPIRCPR*((S_PPIRMNRA(-2)/S_PPICPIC$(-2))/(S_PPIRMNRA(-5)/S_PPICPIC$(-5)))^(1/3)"
+                 "*(0.910-S_PEOIPRM$Z(-3)/2)/(0.910-S_PEOIPRM$Z(-4)/2)",
+    "S_PBPRCYA": "S_PBPRCYA=@recode(S_PPIRCYB<=1,S_PPIRCYB,@recode(S_PPIRCYB*(S_PBPRCMSZ+S_PBPRCMSY)*S_PBPSSRY(-1)<1,1,"
+                 "S_PPIRCYB*(S_PBPRCMSZ+S_PBPRCMSY)*S_PBPSSRY(-1)))",
+    "S_PENRCYA": "S_PENRCYA=@recode(S_PPIRCYB<=1,S_PPIRCYB,@recode(S_PPIRCYB*(S_PENRCMSZ+S_PENRCMSY)*S_PENSSRY(-1)<1,1,"
+                 "S_PPIRCYB*(S_PENRCMSZ+S_PENRCMSY)*S_PENSSRY(-1)))",
+    "S_PBPRCEA": "S_PBPRCEA=@recode(S_PPIRCEB<=1,S_PPIRCEB,@recode(S_PPIRCEB*(S_PBPRCMSZ+S_PBPRCMSY)*S_PBPSSRE(-1)<1,1,"
+                 "S_PPIRCEB*(S_PBPRCMSZ+S_PBPRCMSY)*S_PBPSSRE(-1)))",
+}
+
 # 使わない指標の式（定義のない変数を参照するもの）
 DROP = {"Z_BONAREVT"}
 
@@ -51,45 +105,10 @@ BOND = {
     "Z_RRRT": "Z_RRRT=Z_RRR$*B_RRT",
 }
 
-# 社会保障の給付・負担の簡略版（35変数）
-# 年金は前年の物価（マクロ経済スライドの調整率を差し引く）、医療・介護は報酬改定（前年の賃金と物価の平均）
-# と外生の数量要因で伸びる。保険料は賃金総額、公費負担は対応する給付に比例する。
+# 雇用保険・社会扶助の給付・負担の簡略版（年金・医療・介護は原典の式を使う）
 SS = {
-    "S_PRICE": "dlog(S_PRICE)=dlog(M_CPIG(-1))-S_SLIDE$",
-    "S_MEDP": "dlog(S_MEDP)=0.5*dlog(M_W(-1))+0.5*dlog(M_CPIG(-1))",
-    "S_PPIEXPD": "S_PPIEXPD=S_PPIEXPD(-1)*(S_PRICE/S_PRICE(-1))*(1+S_PENQ$)",
-    "S_MMIEXPD": "S_MMIEXPD=S_MMIEXPD(-1)*(S_MEDP/S_MEDP(-1))*(1+S_MEDQ$)",
-    "S_CCIEXPD": "S_CCIEXPD=S_CCIEXPD(-1)*(S_MEDP/S_MEDP(-1))*(1+S_CAREQ$)",
-    # 保険料（家計・雇主）: 賃金総額に比例
-    "S_PEOIPRM": "S_PEOIPRM=S_PEOIPRM(-1)*(1+@pch(M_YWIPV))",
-    "S_PMCIPRM": "S_PMCIPRM=S_PMCIPRM(-1)*(1+@pch(M_YWIGV))",
-    "S_PMLIPRM": "S_PMLIPRM=S_PMLIPRM(-1)*(1+@pch(M_YWIGV))",
-    "S_PMPIPRM": "S_PMPIPRM=S_PMPIPRM(-1)*(1+@pch(M_YWIPV))",
-    "S_PNPIPRM": "S_PNPIPRM=S_PNPIPRM(-1)*(1+@pch(M_W))",
-    "S_PPIERBG": "S_PPIERBG=S_PPIERBG(-1)*(1+@pch(M_YWIGV))",
-    "S_PPIERBP": "S_PPIERBP=S_PPIERBP(-1)*(1+@pch(M_YWIPV))",
-    "S_MMIERBG": "S_MMIERBG=S_MMIERBG(-1)*(1+@pch(M_YWIGV))",
-    "S_MMIERBP": "S_MMIERBP=S_MMIERBP(-1)*(1+@pch(M_YWIPV))",
-    "S_CCIERBG": "S_CCIERBG=S_CCIERBG(-1)*(1+@pch(M_YWIGV))",
-    "S_CCIERBP": "S_CCIERBP=S_CCIERBP(-1)*(1+@pch(M_YWIPV))",
-    "S_MMIIPHH": "S_MMIIPHH=S_MMIIPHH(-1)*(1+@pch(M_YWIV))",
-    "S_CCIIPHH": "S_CCIIPHH=S_CCIIPHH(-1)*(1+@pch(M_YWIV))",
+    # 雇用保険料: 賃金総額に比例
     "S_OEIIPRM": "S_OEIIPRM=S_OEIIPRM(-1)*(1+@pch(M_YWIV))",
-    # 公費負担: 対応する給付に比例
-    "S_PNMPEBC": "S_PNMPEBC=S_PNMPEBC(-1)*(1+@pch(S_PPIEXPD))",
-    "S_PMCPEBC": "S_PMCPEBC=S_PMCPEBC(-1)*(1+@pch(S_PPIEXPD))",
-    "S_PMLPEBL": "S_PMLPEBL=S_PMLPEBL(-1)*(1+@pch(S_PPIEXPD))",
-    "S_PMPPEBC": "S_PMPPEBC=S_PMPPEBC(-1)*(1+@pch(S_PPIEXPD))",
-    "S_MMIPEBC": "S_MMIPEBC=S_MMIPEBC(-1)*(1+@pch(S_MMIEXPD))",
-    "S_MMIPEBL": "S_MMIPEBL=S_MMIPEBL(-1)*(1+@pch(S_MMIEXPD))",
-    "S_MHAPEBC": "S_MHAPEBC=S_MHAPEBC(-1)*(1+@pch(S_MMIEXPD))",
-    "S_MNHPEBC": "S_MNHPEBC=S_MNHPEBC(-1)*(1+@pch(S_MMIEXPD))",
-    "S_MNUPEBC": "S_MNUPEBC=S_MNUPEBC(-1)*(1+@pch(S_MMIEXPD))",
-    "S_MLEDCBC": "S_MLEDCBC=S_MLEDCBC(-1)*(1+@pch(S_MMIEXPD))",
-    "S_MMIESSL": "S_MMIESSL=S_MMIESSL(-1)*(1+@pch(S_MMIEXPD))",
-    "S_CCIPEBC": "S_CCIPEBC=S_CCIPEBC(-1)*(1+@pch(S_CCIEXPD))",
-    "S_CCIPEBL": "S_CCIPEBL=S_CCIPEBL(-1)*(1+@pch(S_CCIEXPD))",
-    "S_CCIESSL": "S_CCIESSL=S_CCIESSL(-1)*(1+@pch(S_CCIEXPD))",
     # 雇用保険: 失業等給付は原典の推計式（S_OUIBNFT）、公費負担も原典の式（S_OUIPEBC）
     "S_OUIBNFT": "S_OUIBNFT=571.1055+0.000992*((M_UR*M_W*M_LF)+(M_UR(-1)*M_W(-1)*M_LF(-1)))/2"
                  "+0.127302*(d(M_UR*M_LF)+abs(d(M_UR*M_LF)))/2",
@@ -100,11 +119,6 @@ SS = {
                  "+1.949649*@movav(@pch(P_POP60OV),5)",
     "S_OSACPIG$": "S_OSACPIG$=M_CPIG(-1)",
     "S_OSABNFP": "S_OSABNFP=S_OSABNFP(-1)*(1+S_OSABNFPG$)",
-    # 年金積立金の運用収入（インカムゲイン）: 利付資産 × 平均利回り。平均利回りは国債と同じく、
-    # 借換え・新規投資の分だけ市場金利（長期金利＋上乗せ）にゆっくり近づく
-    "S_PPIRAVG": "S_PPIRAVG=S_PPIRAVG(-1)+(M_RGB+S_PPISPR$-S_PPIRAVG(-1))/Z_MATC$",
-    "S_PPIING": "S_PPIING=S_PPIBOND*S_PPIRAVG/100",
-    "S_PPIBOND": "S_PPIBOND=S_PPIBOND(-1)*(1+@pch(M_GDPV))",
 }
 
 # 社会保障の簡略版で推計式とみなすもの（アドファクターでベースラインに合わせる）
