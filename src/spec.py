@@ -94,8 +94,9 @@ FISCAL = {
     # 平均調達金利は新発10年債利回りに徐々に近づく（借換えの速さ = 1/平均残存年数）
     "M_RAVGC": "M_RAVGC=M_RAVGC(-1)+(M_RGB-M_RAVGC(-1))/Z_MATC$",
     "M_RAVGL": "M_RAVGL=M_RAVGL(-1)+(M_RGB-M_RAVGL(-1))/Z_MATL$",
-    "M_YIGVCRLWF": "M_YIGVCRLWF=M_RAVGC/100*Z_GBNML(-1)+M_YIGVCRLR",
-    "M_YIGVLRLWF": "M_YIGVLRLWF=M_RAVGL/100*B_ZLGB(-1)+M_YIGVLRLR",
+    # 利払費は原典の国債利払費（Z_PINTBON=0.5*B_BRPAY+0.5*B_BRPAY(-1)）と同じく半年ずれる
+    "M_YIGVCRLWF": "M_YIGVCRLWF=(0.5*M_RAVGC+0.5*M_RAVGC(-1))/100*Z_GBNML(-1)+M_YIGVCRLR",
+    "M_YIGVLRLWF": "M_YIGVLRLWF=(0.5*M_RAVGL+0.5*M_RAVGL(-1))/100*B_ZLGB(-1)+M_YIGVLRLR",
     "M_YIGVLRLR": "M_YIGVLRLR=M_YIGVLRLR(-1)",
     "M_YIGVFRAWF": "M_YIGVFRAWF=M_YIGVFRAWF(-1)*(1+@pch(M_GDPV))",
     # 公債等残高 = 国債 + 地方債 + 交付税特会借入金（純借入の累積）。法人課税は決算後に納付される
@@ -104,6 +105,14 @@ FISCAL = {
     "B_ZLGB": "B_ZLGB=B_ZLGB(-1)-M_BGLV+(Z_TYCVL-Z_TYCVL(-1))",
     "Z_DEBTOUT": "Z_DEBTOUT=Z_GBNML+B_ZLGB+Z_SPB",
     "Z_DEBTAGDP": "Z_DEBTAGDP=Z_DEBTOUT/M_GDPV*100",
+}
+
+# 方程式リストの式を書き換えるもの: {変数名: (元の文字列, 新しい文字列)}。理由は README に記載。
+EQ_FIX = {
+    # コールレート: テイラー・ルールの今期の変化に直接反応する項（0.246378*d(M_TAYLOR)）を外す。
+    # 原典どおりだと政府支出拡大の1年目の上昇が0.24%ptで公表乗数（0.08%pt）の3倍になる。
+    # 外すと7ケース×5年のコールレート・長期金利の乗数が公表値とほぼ一致する（README 参照）。
+    "M_RCO": ("+0.246378*d(M_TAYLOR)", ""),
 }
 
 # 簡略版で置き換えるマクロブロックの式（FISCAL に同名の式があるもの）は自動で外す。
@@ -157,7 +166,13 @@ def build() -> Model:
         if len(it["eqs"]) != 1:
             raise ValueError(f"{name}: 式が {len(it['eqs'])} 本")
         pdl = [p["coefs"] for p in it["pdl"]]
-        for nm, eq in expand(raw_name, it["eqs"][0]):
+        src = it["eqs"][0]
+        if name in EQ_FIX:
+            old, new = EQ_FIX[name]
+            if old not in src:
+                raise ValueError(f"{name}: 書き換え対象「{old}」が式にない")
+            src = src.replace(old, new)
+        for nm, eq in expand(raw_name, src):
             nm = nm.upper()
             eqs.append(compile_eq(nm, eq, pdl))
             meta[nm] = {"label": it["label"], "block": it["block"], "estimated": bool(it["stats"] or pdl
