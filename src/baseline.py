@@ -24,8 +24,29 @@ def suffix(mode: str, fiscal: str) -> str:
     return ("" if mode == "calibrated" else f"_{mode}") + ("" if fiscal == "simple" else f"_{fiscal}")
 
 
-def out_path(mode: str, fiscal: str = "simple") -> Path:
-    return ROOT / "data" / "processed" / f"baseline_{mode}{'' if fiscal == 'simple' else '_' + fiscal}.pkl"
+def out_path(mode: str, fiscal: str = "simple", variant: str = "standard") -> Path:
+    tail = "" if variant == "standard" else f"_{variant}"
+    return ROOT / "data" / "processed" / f"baseline_{mode}{'' if fiscal == 'simple' else '_' + fiscal}{tail}.pkl"
+
+
+# 標準ケースの変種: 実質成長率、物価上昇率（デフレーター）、長期金利・短期金利（%）。
+# standard は乗数表の比較に使う既定の経路。kako・seicho は中長期試算（2026年1月）の過去投影ケース・成長移行ケースの
+# 2027～2035年度の平均的な姿（実質成長率、GDPデフレーター変化率、名目長期金利）に合わせた一定成長の経路。
+# 短期金利は資料にないので、2024年度の長短金利差（0.87%pt）を保つとした（推定）。
+VARIANTS = {
+    "standard": {"g_real": 0.005, "g_price": 0.02, "rates": None},
+    "kako": {"g_real": 0.005, "g_price": 0.007, "rates": {"M_RGB": 2.0, "M_RCO": 2.0 - 0.87}},
+    "seicho": {"g_real": 0.014, "g_price": 0.016, "rates": {"M_RGB": 3.0, "M_RCO": 3.0 - 0.87}},
+}
+
+
+def set_variant(variant: str) -> dict:
+    """成長率の定数を変種に合わせて置き換える（growth() が参照する）."""
+    global G_REAL, G_PRICE, G_NOM
+    v = VARIANTS[variant]
+    G_REAL, G_PRICE = v["g_real"], v["g_price"]
+    G_NOM = (1 + G_REAL) * (1 + G_PRICE) - 1
+    return v
 
 BASE_YEAR = 2024
 FIRST, LAST = 2000, 2045
@@ -134,9 +155,12 @@ def bond_forward(m: Model, data: dict) -> None:
 
 
 def make(model: Model | None = None, verbose: bool = True, mode: str = "calibrated",
-         fiscal: str = "simple") -> tuple[Model, dict, dict]:
+         fiscal: str = "simple", variant: str = "standard") -> tuple[Model, dict, dict]:
     m = model or build(mode, fiscal)
+    var = set_variant(variant)
     d0 = data2024.build(m.mode)
+    if var["rates"]:
+        d0.update(var["rates"])
     if m.fiscal == "port":
         import data_fiscal
         df = data_fiscal.build()
@@ -185,13 +209,13 @@ def make(model: Model | None = None, verbose: bool = True, mode: str = "calibrat
     return m, data, s.af
 
 
-def main(mode: str = "calibrated", fiscal: str = "simple") -> None:
-    m, data, af = make(mode=mode, fiscal=fiscal)
-    out = out_path(mode, fiscal)
+def main(mode: str = "calibrated", fiscal: str = "simple", variant: str = "standard") -> None:
+    m, data, af = make(mode=mode, fiscal=fiscal, variant=variant)
+    out = out_path(mode, fiscal, variant)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("wb") as f:
         pickle.dump({"data": data, "af": af}, f)
-    print(f"ベースライン（{mode}、{fiscal}）→ {out}")
+    print(f"ベースライン（{mode}、{fiscal}、{variant}）→ {out}")
 
 
 if __name__ == "__main__":
@@ -199,5 +223,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", default="calibrated", choices=["calibrated", "faithful"])
     ap.add_argument("--fiscal", default="simple", choices=["simple", "port"])
+    ap.add_argument("--variant", default="standard", choices=list(VARIANTS))
     a = ap.parse_args()
-    main(a.mode, a.fiscal)
+    main(a.mode, a.fiscal, a.variant)
