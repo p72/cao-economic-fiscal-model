@@ -28,13 +28,13 @@ G_NOM = (1 + G_REAL) * (1 + G_PRICE) - 1
 REAL = {
     "M_GDP", "M_GDPP", "M_GDI", "M_GNI", "M_CP", "M_IFP", "M_IHP", "M_IHPBASE", "M_IN", "M_CG", "M_IG", "M_G",
     "M_XGS", "M_MGS", "M_MGSEQ", "M_YD", "M_TRI", "M_TRIREC", "M_TRIPAY", "M_TRDG", "M_BG", "M_KFP",
-    "M_KFPSTAR", "M_EQKFP", "M_KHP", "M_KFPCFC", "M_KHPCFC", "M_CGRCC", "M_CGRIC", "M_CGRCL", "M_CGRIL",
+    "M_KFPSTAR", "M_EQKFP", "M_KHP", "M_KFPCFC", "M_KHPCFC", "M_CGRCC", "M_CGRIC", "M_CGRCL", "M_CGRIL", "M_CGRIF",
     "M_IGR1", "M_IGR2", "M_IGR3", "M_IGR5", "M_IHPADJ",
 }
 PRICE = {
     "M_PGDP", "M_PGDPA", "M_PGDPA2", "M_CPIG", "M_CPIGA", "M_CGPI", "M_CGPIA", "M_PCP", "M_PCPA", "M_PIFP",
     "M_PIHP", "M_PIHPA", "M_PIN", "M_PINA", "M_PCG", "M_PCGA", "M_PIG", "M_PIGA", "M_PDDM", "M_PGDPD",
-    "M_PXGS", "M_PMGS", "M_PNMR", "MWE_WPI", "MUS_WPI", "M_POILD", "S_MEDP",
+    "M_PXGS", "M_PMGS", "M_PNMR", "MWE_WPI", "MUS_WPI", "M_POILD",
 }
 # 一定（金利、比率、率、人数、指数の対数など）
 CONST_PREFIX = ("P_", "M_WT", "M_EQL", "M_EQU", "M_EQC", "Z_RT", "Z_MAT", "M_D0", "M_D1", "M_D2", "M_D8",

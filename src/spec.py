@@ -63,9 +63,9 @@ FISCAL = {
     "M_CGVIC": "M_CGVIC=-M_CGRIC*M_PCG",
     "M_CGVCL": "M_CGVCL=-M_CGRCL*M_PCG",
     "M_CGVIL": "M_CGVIL=-M_CGRIL*M_PCG",
-    # 医療・介護の現物給付：報酬改定率（前年の賃金・物価）＋外生の数量要因
-    "S_MEDP": "dlog(S_MEDP)=0.5*dlog(M_W(-1))+0.5*dlog(M_CPIG(-1))",
-    "M_CGVIF": "M_CGVIF=M_CGVIF(-1)*(S_MEDP/S_MEDP(-1))*(1+S_MEDQ$)",
+    # 社会保障基金の現物給付（医療・介護）も実質額を外生で与える。公表乗数は「ケース③〜⑧では
+    # 実質政府支出は一定と仮定」しているので、物価が動いても実質の政府支出は変えない
+    "M_CGVIF": "M_CGVIF=-M_CGRIF*M_PCG",
     # 現金給付：年金は前年の物価（マクロ経済スライドの調整率を差し引く）、ほかは前年の物価
     "S_PENB": "S_PENB=S_PENB(-1)*(1+@pch(M_CPIG(-1))-S_SLIDE$)*(1+S_PENQ$)",
     "M_BSSVF": "M_BSSVF=-S_PENB+M_BSSVFER",

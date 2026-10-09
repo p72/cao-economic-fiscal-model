@@ -170,7 +170,7 @@ def build() -> dict[str, float]:
     d["M_CGVCL"], d["M_CGVIL"] = -col[L], -ind[L]
     d["M_CGVCF"], d["M_CGVIF"] = -col[F], -ind[F]
     d["M_CGVIFE"] = sec("ｂ．現物社会移転（市場産出の購入）")["合計"]
-    for k in ("CC", "IC", "CL", "IL"):
+    for k in ("CC", "IC", "CL", "IL", "IF"):
         d[f"M_CGR{k}"] = -d[f"M_CGV{k}"] / d["M_PCG"]
 
     ctr, ctp = sec("１９．資本移転（受取）"), sec("２０．（控除）資本移転（支払）")
@@ -269,8 +269,7 @@ def build() -> dict[str, float]:
     d["Z_ADJTCIVC"] = d["Z_ADJTCIVL"] = 0.0
     d["M_DPOPC"] = 0.0
     d["DM_VATACP$"] = 0.0
-    d["S_MEDP"] = 1.0
-    d["S_MEDQ$"] = d["S_PENQ$"] = d["S_SLIDE$"] = 0.0
+    d["S_PENQ$"] = d["S_SLIDE$"] = 0.0
     d["M_TFP"] = 0.0  # 生産関数のアドファクターで水準を合わせる
     d["MWE_WPI"] = d["MUS_WPI"] = 1.0
     d["M_CGPIA"] = d["M_CGPI"] / (1 + d["Z_RTCIV"])
