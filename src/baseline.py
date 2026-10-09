@@ -28,7 +28,7 @@ def out_path(mode: str, fiscal: str = "simple") -> Path:
     return ROOT / "data" / "processed" / f"baseline_{mode}{'' if fiscal == 'simple' else '_' + fiscal}.pkl"
 
 BASE_YEAR = 2024
-FIRST, LAST = 2005, 2045
+FIRST, LAST = 2000, 2045
 G_REAL, G_PRICE = 0.005, 0.02
 G_NOM = (1 + G_REAL) * (1 + G_PRICE) - 1
 
@@ -58,6 +58,8 @@ CONST = {
 PENSION_CONST = re.compile(r"^S_P(PIRC|BPRC|ENRC|BPSSR|ENSSR|NPRCIP|PICPIGZ|..TRBPN|..INSPN|..BNFTN|"
                            r"NPIPRMAZ|..DC..\$|..IPRM\$|PI...\$|PIFUNDBD\$|PIRT...\$Z|PIPROR\$2|NPIPPY\$Z)")
 
+# 普通国債ブロックの構成比・金利・価格・ダミー（一定）
+BOND_CONST = re.compile(r"^B_(RBHQ|RP|LSSPRD|IR|IC|YC|IPR|WB|RB|RDBNEW|DDBNEW|DUM|RISKPRM|RAGBZ)")
 # 医療・介護の加入者数・改定率（一定）
 MEDCARE_CONST = re.compile(r"^S_(M..INSP|MY.INSP|CCI.INSN$|MMIRCCF$|CCIRCCF$)")
 
@@ -65,7 +67,7 @@ MEDCARE_CONST = re.compile(r"^S_(M..INSP|MY.INSP|CCI.INSN$|MMIRCCF$|CCIRCCF$)")
 def growth(v: str) -> float:
     if v == "M_TIME":
         return 0.0
-    if v.startswith("S_P") and PENSION_CONST.match(v) or MEDCARE_CONST.match(v):
+    if v.startswith("S_P") and PENSION_CONST.match(v) or MEDCARE_CONST.match(v) or BOND_CONST.match(v):
         return 0.0
     if v in REAL:
         return G_REAL
@@ -99,6 +101,38 @@ def pension_profit_rate(data: dict, t: int) -> float:
             / (x["M_KFP"] * x["M_PIFP"]) - x["M_KFPCFC$"])
 
 
+def bond_overrides(m: Model, data: dict) -> None:
+    """普通国債の既発債のスケジュールと発行年度ダミー（年度ごとに値が変わる外生変数）を入れる.
+
+    既発債の残高は、2025年度末の普通国債残高（標準ケースの Z_GBNML2）に合うように比例で調整する。
+    """
+    import bond_port
+    import jgb_data
+    total = sum(jgb_data.schedule(2025, 2025)[q]["stock"][2025] for q in bond_port.TENORS)
+    scale = data["Z_GBNML2"][2025] / total
+    for v, col in bond_port.exog_series(scale, FIRST, LAST).items():
+        if v in data:
+            data[v] = col
+    # 地方債の既発分: 2025年度末残高を平均償還年数で償還し、利払費は基準年度の平均利率（SNA の利子 / 残高）
+    rate0 = (data["M_YIGVLRLWF"][BASE_YEAR] - data["M_YIGVLRLR"][BASE_YEAR]) / data["B_ZLGB"][BASE_YEAR - 1]
+    for v, col in bond_port.lgb_exog_series(data["B_ZLGB"][2025], rate0, FIRST, LAST).items():
+        if v in data:
+            data[v] = col
+
+
+def bond_forward(m: Model, data: dict) -> None:
+    """標準ケースの国債・地方債ブロックを、ほかの変数を固定して2025年度から前向きに解く.
+
+    合成の一定成長の経路のままだと、発行年度別の残高が現実の発行・償還と合わず、金利が動いたときの
+    利払費の増え方が正しく出ないため。2036年度以降は新規発行の積み上げがないので解かない。
+    """
+    import bond_port
+    bv = bond_port.endogenous() & set(m.endog)
+    s = Solver(m, data)
+    for t in range(2025, max(bond_port.VINTAGES) + 1):
+        s.solve_year(t, pinned=set(m.endog) - bv, calibrate_pinned=False)
+
+
 def make(model: Model | None = None, verbose: bool = True, mode: str = "calibrated",
          fiscal: str = "simple") -> tuple[Model, dict, dict]:
     m = model or build(mode, fiscal)
@@ -127,6 +161,8 @@ def make(model: Model | None = None, verbose: bool = True, mode: str = "calibrat
         vals = {**d0, **guess}
         data = {v: path(v, vals[v]) for v in allv if v != "M_TIME"}
         data["M_TIME"] = path("M_TIME", 0.0)
+        if m.fiscal == "port":
+            bond_overrides(m, data)
         s = Solver(m, data)
         s.solve_year(BASE_YEAR, pinned=known, calibrate_pinned=False)
         if "S_PPIPROR$2" in d0:
@@ -139,6 +175,9 @@ def make(model: Model | None = None, verbose: bool = True, mode: str = "calibrat
     vals = {**d0, **guess}
     data = {v: path(v, vals[v]) for v in allv if v != "M_TIME"}
     data["M_TIME"] = path("M_TIME", 0.0)
+    if m.fiscal == "port":
+        bond_overrides(m, data)
+        bond_forward(m, data)
     s = Solver(m, data)
     for t in range(BASE_YEAR, LAST + 1):
         for eq in m.eqs:

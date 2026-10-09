@@ -230,6 +230,10 @@ def build(mode: str = "calibrated", fiscal: str = "simple") -> Model:
         for nm, (eq, why) in FP.PATCH.items():
             eqs.append(compile_eq(nm, eq))
             meta[nm] = {"label": f"（補正: {why}）", "block": "fiscal", "estimated": False}
+        import bond_port
+        for nm, eq in bond_port.all_eqs(items).items():
+            eqs.append(compile_eq(nm, eq))
+            meta[nm] = {"label": "（普通国債の発行年度×年限の積み上げ）", "block": "bond", "estimated": False}
         for nm, eq in FP.BOND.items():
             eqs.append(compile_eq(nm, eq))
             meta[nm] = {"label": "（国債・地方債の集約版）", "block": "bond_simple", "estimated": False}

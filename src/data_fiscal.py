@@ -259,6 +259,22 @@ def build() -> dict[str, float]:
     # 国債・地方債の集約版
     d["ZP_GBNML2"] = 2_300.0                 # 年金特例公債（財務省資料の注、2024年度末）
     d["Z_GBNML2"] = 1_055_000.0 - d["ZP_GBNML2"]
+    # 普通国債の発行年度×年限の積み上げ（bond_port.py）: 発行の年限構成、超長期債の上乗せ、基準年度の長短金利差
+    import bond_port
+    import data2024
+    d.update(bond_port.params())
+    d["B_LSSPRDX"] = data2024.ASSUMED["M_RGB"] - data2024.ASSUMED["M_RCO"]
+    # 既発債のスケジュールと発行年度ダミーは年度ごとに値が変わるので baseline.bond_overrides で入れる（ここでは仮の0）
+    for q in bond_port.TENORS:
+        for k in ("B_EXBOUT", "B_EXDB", "B_EXPB"):
+            d[f"{k}{q}"] = 0.0
+    for y in range(min(bond_port.VINTAGES), bond_port.LAST_DUMMY + 1):
+        d[bond_port.dum(y)] = 0.0
+    for k in ("B_ROP", "B_DRP", "Z_ROPR"):
+        d[k] = 0.0
+    for y in range(bond_port.LGB_START, bond_port.LGB_START + max(bond_port.AGES) + 1):
+        d[bond_port.cdum(y)] = 0.0
+    d["B_RISKPRM"] = 0.3                     # 財政融資資金の貸出金利 − 新発10年国債利回り（%pt、推定）
     # マクロブロックの式で使う値（SNA と会計の差など）
     # 現金による社会保障給付（SNA、社会保障基金）。原典の M_BSSVF の式は政府の支払いを負値で持つ
     # （M_BSSVF=((-M_BSSVPEN)+…)*(-1)）ので負値で入れる
@@ -272,10 +288,6 @@ def build() -> dict[str, float]:
     d["Z_EXPA2X"] = 100.0                    # 公共事業関係費のうち下水道分の地方補助金（推定）
     d["Z_OTXLMF"] = 57_216 * OKU             # 貸付金元利収入
     d["Z_OTXLMG"] = 63_000 * OKU             # 使用料・手数料、諸収入など（推定）
-    d["B_LGBMAT$"] = 14.0                    # 地方債の元金償還の平均年数（公債費の計画値に合うように推定）
-    d["Z_ROPR"] = 0.0
-    d["Z_ROPR$"] = 0.35                      # 地方債の元利償還のうち臨時財政対策債の割合（推定）
-    d["Z_RRR$"] = 0.35
 
     # その他の定数
     d["Z_GREXPX$"] = 1.0
