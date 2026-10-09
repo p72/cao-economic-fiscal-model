@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import pickle
+import re
 from pathlib import Path
 
 import data2024
@@ -18,8 +19,13 @@ from solver import Solver
 from spec import Model, build
 
 ROOT = Path(__file__).resolve().parents[1]
-def out_path(mode: str) -> Path:
-    return ROOT / "data" / "processed" / f"baseline_{mode}.pkl"
+def suffix(mode: str, fiscal: str) -> str:
+    """出力ファイル名の接尾辞（calibrated・simple は空）."""
+    return ("" if mode == "calibrated" else f"_{mode}") + ("" if fiscal == "simple" else f"_{fiscal}")
+
+
+def out_path(mode: str, fiscal: str = "simple") -> Path:
+    return ROOT / "data" / "processed" / f"baseline_{mode}{'' if fiscal == 'simple' else '_' + fiscal}.pkl"
 
 BASE_YEAR = 2024
 FIRST, LAST = 2005, 2045
@@ -76,9 +82,17 @@ def dummies(model: Model) -> dict[str, float]:
     return out
 
 
-def make(model: Model | None = None, verbose: bool = True, mode: str = "calibrated") -> tuple[Model, dict, dict]:
-    m = model or build(mode)
+def make(model: Model | None = None, verbose: bool = True, mode: str = "calibrated",
+         fiscal: str = "simple") -> tuple[Model, dict, dict]:
+    m = model or build(mode, fiscal)
     d0 = data2024.build(m.mode)
+    if m.fiscal == "port":
+        import data_fiscal
+        d0.update(data_fiscal.build())
+        # 調整項・残差・制度変更分は0（標準ケースのアドファクターが同じ役割を果たす）
+        for v in m.exog():
+            if v not in d0 and re.search(r"(ADJ|ER$|XX$|ADJCH$|^Z_D[A-Z]|^RES)", v):
+                d0[v] = 0.0
     d0.update(dummies(m))
     allv = set(m.endog) | set(m.exog())
     missing_ex = sorted(v for v in m.exog() if v not in d0 and v != "M_TIME")
@@ -111,17 +125,19 @@ def make(model: Model | None = None, verbose: bool = True, mode: str = "calibrat
     return m, data, s.af
 
 
-def main(mode: str = "calibrated") -> None:
-    m, data, af = make(mode=mode)
-    out = out_path(mode)
+def main(mode: str = "calibrated", fiscal: str = "simple") -> None:
+    m, data, af = make(mode=mode, fiscal=fiscal)
+    out = out_path(mode, fiscal)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("wb") as f:
         pickle.dump({"data": data, "af": af}, f)
-    print(f"ベースライン（{mode}）→ {out}")
+    print(f"ベースライン（{mode}、{fiscal}）→ {out}")
 
 
 if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", default="calibrated", choices=["calibrated", "faithful"])
-    main(ap.parse_args().mode)
+    ap.add_argument("--fiscal", default="simple", choices=["simple", "port"])
+    a = ap.parse_args()
+    main(a.mode, a.fiscal)

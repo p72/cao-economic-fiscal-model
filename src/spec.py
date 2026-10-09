@@ -134,11 +134,16 @@ DROP = {
 }
 
 
+# 移植版では使う式（財政ブロックの変数が揃うので外さない）
+DROP_KEEP_PORT = {"M_BSSVPEN", "M_CZEIGAI", "M_ZEIGAI", "M_TAXCER", "M_TAXLER"}
+
+
 @dataclass
 class Model:
     eqs: list[CompiledEq]
     meta: dict = field(default_factory=dict)  # name -> {label, block, estimated}
     mode: str = "calibrated"
+    fiscal: str = "simple"
 
     @property
     def endog(self) -> list[str]:
@@ -161,18 +166,42 @@ def expand(name: str, eq: str) -> list[tuple[str, str]]:
     return out
 
 
-def build(mode: str = "calibrated") -> Model:
+FISCALS = ("simple", "port")
+
+
+def build(mode: str = "calibrated", fiscal: str = "simple") -> Model:
+    """モデルを組み立てる.
+
+    fiscal="simple": 財政・社会保障ブロックを簡略版（FISCAL）で置き換える。
+    fiscal="port": 財政ブロックの会計部分を方程式リストどおりに移植する（fiscal_port.py）。
+    """
     if mode not in MODES:
         raise ValueError(f"mode は {MODES} のどれか: {mode}")
+    if fiscal not in FISCALS:
+        raise ValueError(f"fiscal は {FISCALS} のどれか: {fiscal}")
+    import fiscal_port as FP
     items = json.loads(EQ_JSON.read_text(encoding="utf-8"))
     eqs: list[CompiledEq] = []
     meta: dict = {}
     for it in items:
-        if it["block"] not in ("population", "macro"):
-            continue
         raw_name = it["name"]
         name = raw_name.upper()
-        if name in FISCAL or name in DROP:
+        if it["block"] == "fiscal" and fiscal == "port":
+            if it["section"] in FP.BOND_SECTIONS or name in FP.DROP or name in FP.BOND:
+                continue
+            if name in FP.PATCH:
+                continue  # 下でまとめて追加する
+            if len(it["eqs"]) != 1:
+                raise ValueError(f"{name}: 式が {len(it['eqs'])} 本")
+            eqs.append(compile_eq(name, it["eqs"][0], [p["coefs"] for p in it["pdl"]]))
+            meta[name] = {"label": it["label"], "block": "fiscal", "estimated": bool(it["stats"] or it["pdl"]
+                          or _has_coef(it["eqs"][0]))}
+            continue
+        if it["block"] not in ("population", "macro"):
+            continue
+        if fiscal == "simple" and (name in FISCAL or name in DROP):
+            continue
+        if fiscal == "port" and name in DROP - DROP_KEEP_PORT:
             continue
         if len(it["eqs"]) != 1:
             raise ValueError(f"{name}: 式が {len(it['eqs'])} 本")
@@ -188,14 +217,25 @@ def build(mode: str = "calibrated") -> Model:
             eqs.append(compile_eq(nm, eq, pdl))
             meta[nm] = {"label": it["label"], "block": it["block"], "estimated": bool(it["stats"] or pdl
                         or _has_coef(eq))}
-    for nm, eq in FISCAL.items():
-        eqs.append(compile_eq(nm, eq))
-        meta[nm] = {"label": "（簡略版）", "block": "fiscal_simple", "estimated": nm in ESTIMATED_FISCAL}
+    if fiscal == "simple":
+        for nm, eq in FISCAL.items():
+            eqs.append(compile_eq(nm, eq))
+            meta[nm] = {"label": "（簡略版）", "block": "fiscal_simple", "estimated": nm in ESTIMATED_FISCAL}
+    else:
+        for nm, (eq, why) in FP.PATCH.items():
+            eqs.append(compile_eq(nm, eq))
+            meta[nm] = {"label": f"（補正: {why}）", "block": "fiscal", "estimated": False}
+        for nm, eq in FP.BOND.items():
+            eqs.append(compile_eq(nm, eq))
+            meta[nm] = {"label": "（国債・地方債の集約版）", "block": "bond_simple", "estimated": False}
+        for nm, eq in FP.SS.items():
+            eqs.append(compile_eq(nm, eq))
+            meta[nm] = {"label": "（社会保障の簡略版）", "block": "ss_simple", "estimated": nm in FP.SS_ESTIMATED}
     names = [e.name for e in eqs]
     dup = {n for n in names if names.count(n) > 1}
     if dup:
         raise ValueError(f"同じ変数の式が複数: {dup}")
-    return Model(eqs, meta, mode)
+    return Model(eqs, meta, mode, fiscal)
 
 
 ESTIMATED_FISCAL = {"Z_TYPVC", "Z_TYPVL"}
@@ -207,7 +247,8 @@ def _has_coef(eq: str) -> bool:
 
 
 if __name__ == "__main__":
-    m = build()
+    import sys
+    m = build(fiscal=sys.argv[1] if len(sys.argv) > 1 else "simple")
     ex = m.exog()
     print(f"内生変数 {len(m.endog)}、外生変数 {len(ex)}、推計式 {sum(v['estimated'] for v in m.meta.values())}")
     print("外生:", " ".join(ex))

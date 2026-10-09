@@ -303,6 +303,22 @@ def build(mode: str = "calibrated") -> dict[str, float]:
     tax_share = d["Z_RTCIV"] * d["M_VATACP$"] / (1 + d["Z_RTCIV"])
     d["M_CPIGA"] = d["M_CPIG"] * (1 - tax_share)
     d["M_PCPA"] = d["M_PCP"] * (1 - tax_share)
+    # 消費税抜きのデフレーター（原典の定義式を逆に解く）
+    rt = d["Z_RTCIV"]
+    d["M_PIHPA"] = d["M_PIHP"] * (1 - rt / (1 + rt))
+    d["M_PIN"] = d["M_PGDP"]
+    d["M_PINA"] = d["M_PIN"] / (1 + rt)
+    d["M_PCGA"] = d["M_PCG"] * (1 - rt * d["M_VATACG$"] / (1 + rt))
+    d["M_PIGA"] = d["M_PIG"] * (1 - rt * d["M_VATAIG$"] / (1 + rt))
+    d["M_PGDPA2"] = d["M_PGDP"] * (d["M_GDPV"] - d["Z_TCIV"]) / d["M_GDPV"]
+    d["M_PGDPA"] = d["M_PGDPA2"]
+    # 統計上の不突合（国民所得の定義式の残差）
+    cca = d["M_DEPC"] + d["M_DEPL"] + d["M_DEPF"] + d["M_KFPCFC"] * d["M_PIFP"] + d["M_KHPCFC"] * d["M_PIHPA"]
+    d["M_SDV"] = (d["M_GDPV"] + d["M_TRIVREC"] - d["M_TRIVPAY"] - (d["Z_TCIV"] + d["Z_OITAXVC"] + d["Z_OITAXVL"])
+                  - (d["M_SUBVC"] + d["M_SUBVL"]) - cca - d["M_NIV"])
+    # 雇主の現実社会負担の政府・民間の内訳（雇用者報酬の比で按分）
+    d["M_YSLIGV"] = d["M_YSLIV"] * d["M_YWGV"] / d["M_YWV"]
+    d["M_YSLIPV"] = d["M_YSLIV"] - d["M_YSLIGV"]
     return d
 
 

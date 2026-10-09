@@ -25,8 +25,9 @@ SCENARIOS = {
 }
 
 
-def out_path(mode: str) -> Path:
-    return ROOT / "output" / ("scenario_fiscal.csv" if mode == "calibrated" else f"scenario_fiscal_{mode}.csv")
+def out_path(mode: str, fiscal: str = "simple") -> Path:
+    import baseline as BL
+    return ROOT / "output" / f"scenario_fiscal{BL.suffix(mode, fiscal)}.csv"
 
 
 VARS = {"M_GDP": "pct", "M_CPIG": "pct", "M_PBGAGDPV": "pt", "Z_DEBTAGDP": "pt", "M_CP": "pct", "M_IFP": "pct"}
@@ -50,9 +51,9 @@ def shock(name: str, data: dict, base: dict) -> None:
             data["M_IGR3"][t] = base["M_IGR3"][t] + 0.5 * dg
 
 
-def run(mode: str = "calibrated") -> pd.DataFrame:
-    m = build(mode)
-    base, af = SIM.load(mode)
+def run(mode: str = "calibrated", fiscal: str = "simple") -> pd.DataFrame:
+    m = build(mode, fiscal)
+    base, af = SIM.load(mode, fiscal)
     rows = []
     for name, label in SCENARIOS.items():
         data = copy.deepcopy(base)
@@ -66,7 +67,7 @@ def run(mode: str = "calibrated") -> pd.DataFrame:
                 rows.append({"scenario": name, "label": label, "var": v, "year": t, "period": k + 1, "dev": dev})
         print(f"{label}: 消費税率 {data['Z_RTCIV'][START]*100:.2f}%" if name == "ctax" else label)
     df = pd.DataFrame(rows)
-    out = out_path(mode)
+    out = out_path(mode, fiscal)
     out.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out, index=False)
     return df
@@ -76,6 +77,8 @@ if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", default="calibrated", choices=["calibrated", "faithful"])
-    df = run(ap.parse_args().mode)
+    ap.add_argument("--fiscal", default="simple", choices=["simple", "port"])
+    a = ap.parse_args()
+    df = run(a.mode, a.fiscal)
     pd.set_option("display.width", 200)
     print(df[df.period.isin([1, 3, 5, 10])].pivot_table(index=["var", "label"], columns="period", values="dev").round(2).to_string())
