@@ -6,7 +6,8 @@
 
 再現経路の最終状態（data と af）は output/parts/proj_state_{case}.pkl に保存する。ないときは projection.py を
 実行して作る（1ケース約30分、高成長実現ケースは成長移行ケースの後）。
-出力: output/ctax5_scenario.csv（列: case, scen（base=減税なし、cut=減税）, year, 各変数）
+出力: output/ctax5_scenario.csv（列: case, scen（base=減税なし、cut=減税）, year, 各変数。rgdp は実質GDP（10億円）、
+w は一人当たり賃金、rw は w を消費者物価で割った実質賃金）
 """
 from __future__ import annotations
 
@@ -43,6 +44,7 @@ def row(case: str, scen: str, d: dict, t: int) -> dict:
     g = lambda v: (d[v][t] / d[v][t - 1] - 1) * 100  # noqa: E731
     return {"case": case, "scen": scen, "year": t, "rgdp": d["M_GDP"][t], "rgdp_g": g("M_GDP"),
             "ngdp": d["M_GDPV"][t] / 1000, "cpi_g": g("M_CPIG"), "pgdp_g": g("M_PGDP"), "cp": d["M_CP"][t],
+            "w": d["M_W"][t], "w_g": g("M_W"), "rw": d["M_W"][t] / d["M_CPIG"][t],
             "pb": d["M_PBGAGDPV"][t], "debt": d["Z_DEBTAGDP"][t], "rgb": d["M_RGB"][t], "tciv": d["Z_TCIV"][t] / 1000}
 
 

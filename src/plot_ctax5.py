@@ -23,7 +23,11 @@ CASES = {"kako": ("過去投影ケース", "#2a78d6"), "seicho": ("成長移行�
 df = pd.read_csv(CSV)
 b = df[df.scen == "base"].set_index(["case", "year"])
 c = df[df.scen == "cut"].set_index(["case", "year"])
+b = b.assign(rgdp_t=b.rgdp / 1000)
+c = c.assign(rgdp_t=c.rgdp / 1000)
 dev = ((c.rgdp / b.rgdp - 1) * 100).rename("rgdp_dev")
+rwdev = ((c.rw / b.rw - 1) * 100).rename("rw_dev")
+DEV = {"rgdp_dev": dev, "rw_dev": rwdev}
 
 W, H, DPI = 2732, 2048, 200
 fig = plt.figure(figsize=(W / DPI, H / DPI), dpi=DPI, facecolor=BG)
@@ -51,10 +55,12 @@ dtax = [(b.loc[(cs, t)].tciv - c.loc[(cs, t)].tciv) for cs in CASES for t in yrs
 dpb = [(b.loc[(cs, t)].pb - c.loc[(cs, t)].pb) for cs in CASES for t in yrs]
 ddebt = [(c.loc[(cs, 2035)].debt - b.loc[(cs, 2035)].debt) for cs in CASES]
 dg = [dev.loc[(cs, t)] for cs in CASES for t in yrs]
-fig.text(0.03, 0.902, f"ポイント　消費税収は国・地方で毎年{min(dtax):.0f}〜{max(dtax):.0f}兆円減り、PBは対GDP比で"
-         f"{min(dpb):.1f}〜{max(dpb):.1f}pt悪化。実質GDPは{min(dg):.1f}〜{max(dg):.1f}%押し上げるが、"
-         f"2035年度の公債等残高は対GDP比で{min(ddebt):.0f}〜{max(ddebt):.0f}pt高くなる。",
-         fontsize=9.5, color=INK, va="center",
+dgl = [c.loc[(cs, t)].rgdp_t - b.loc[(cs, t)].rgdp_t for cs in CASES for t in yrs]
+drw = [rwdev.loc[(cs, t)] for cs in CASES for t in yrs]
+fig.text(0.03, 0.902, f"ポイント　実質GDPは{min(dg):.1f}〜{max(dg):.1f}%（{min(dgl):.0f}〜{max(dgl):.0f}兆円）、"
+         f"実質賃金は約{sum(drw) / len(drw):.0f}%押し上がる。一方、消費税収は国・地方で毎年{min(dtax):.0f}〜{max(dtax):.0f}兆円減り、"
+         f"PBは対GDP比{min(dpb):.1f}〜{max(dpb):.1f}pt悪化、2035年度の公債等残高は対GDP比{min(ddebt):.0f}〜{max(ddebt):.0f}pt高くなる。",
+         fontsize=9, color=INK, va="center",
          bbox=dict(boxstyle="round,pad=0.5", facecolor="#eef4fc", edgecolor="none"))
 
 
@@ -65,46 +71,50 @@ def panel(rect, title, col, diff=False, zero=False):
         ax.axhline(0, color=MUTED, lw=0.8)
     ax.axvspan(2026.5, 2035.5, color="#f6f6f4", lw=0, zorder=0)
     for cs, (name, colr) in CASES.items():
-        yb = b.loc[cs][col]
         if diff:
-            y = dev.loc[cs]
-            ax.plot(y.index, y.values, color=colr, lw=2, marker="o", ms=3, label=name)
+            y = DEV[col].loc[cs]
+            ax.plot(y.index, y.values, color=colr, lw=2, marker="o", ms=2.5, label=name)
         else:
+            yb, yc = b.loc[cs][col], c.loc[cs][col]
             ax.plot(yb.index, yb.values, color=colr, lw=1.2, ls=(0, (1.5, 1.5)))
-            yc = c.loc[cs][col]
             ax.plot(yc.index, yc.values, color=colr, lw=2, label=name)
     ax.set_xticks(range(2026, 2036, 1))
-    ax.set_xticklabels([str(y) if y % 2 == 0 else "" for y in range(2026, 2036)])
+    ax.set_xticklabels([str(y) if y % 3 == 0 else "" for y in range(2026, 2036)])
     ax.set_xlim(2025.7, 2035.3)
-    ax.set_title(title, loc="left", fontsize=10.5, color=INK, pad=6)
+    ax.set_title(title, loc="left", fontsize=9.5, color=INK, pad=5)
     return ax
 
 
-gw, gh = 0.40, 0.235
-a1 = panel([0.065, 0.625, gw, gh], "実質GDP（減税なしからの乖離率、%）", "rgdp", diff=True, zero=True)
-a1.legend(loc="lower right", fontsize=8, frameon=False)
-panel([0.565, 0.625, gw, gh], "消費者物価上昇率（%）", "cpi_g", zero=True)
-panel([0.065, 0.315, gw, gh], "基礎的財政収支（PB、対GDP比、%）", "pb", zero=True)
-panel([0.565, 0.315, gw, gh], "公債等残高（対GDP比、%）", "debt")
+PANELS = [
+    [("実質GDP（兆円）", "rgdp_t", False, False), ("実質GDP（減税なしからの乖離率、%）", "rgdp_dev", True, True),
+     ("消費者物価上昇率（%）", "cpi_g", False, True), ("名目賃金上昇率（%）", "w_g", False, False)],
+    [("実質賃金（減税なしからの乖離率、%）", "rw_dev", True, True), ("消費税収（国・地方、兆円）", "tciv", False, False),
+     ("基礎的財政収支（PB、対GDP比、%）", "pb", False, True), ("公債等残高（対GDP比、%）", "debt", False, False)],
+]
+gx0, gdx, gw, gh = 0.055, 0.24, 0.195, 0.2
+for r, row_ in enumerate(PANELS):
+    for k, (title, col, diff, zero) in enumerate(row_):
+        ax = panel([gx0 + k * gdx, 0.635 - r * 0.29, gw, gh], title, col, diff, zero)
+        if r == 0 and k == 0:
+            ax.legend(loc="upper left", fontsize=7.5, frameon=False)
 
 # ---- 表: 2030・2035年度 ----
-tb = fig.add_axes([0.03, 0.05, 0.94, 0.2])
+tb = fig.add_axes([0.03, 0.05, 0.94, 0.215])
 tb.axis("off")
 tb.set_xlim(0, 1)
 tb.set_ylim(0, 1)
 tb.text(0, 1.02, "2030年度・2035年度の姿　減税（減税なし）", fontsize=10.5, color=INK, va="top")
-COLS = [("rgdp_dev", "実質GDP\n乖離率（%）", 2), ("cpi_g", "消費者物価\n上昇率（%）", 1), ("pb", "PB\n対GDP比（%）", 1),
-        ("debt", "公債等残高\n対GDP比（%）", 1)]
+COLS = [("rgdp_t", "実質GDP\n（兆円）", 0), ("rw_dev", "実質賃金\n乖離率（%）", 1), ("cpi_g", "消費者物価\n上昇率（%）", 1),
+        ("pb", "PB\n対GDP比（%）", 1), ("debt", "公債等残高\n対GDP比（%）", 1)]
 YRS = (2030, 2035)
-x0, cw = 0.205, 0.0995
+x0, cw = 0.17, 0.0825
 yh, rh = 0.76, 0.17
 for j, yr in enumerate(YRS):
-    xs = x0 + j * 4 * cw
-    tb.text(xs + 2 * cw - 0.01, 0.93, f"{yr}年度", ha="center", va="center", fontsize=9.5, color=INK, weight="bold")
-    tb.plot([xs + 0.005, xs + 4 * cw - 0.025], [0.88, 0.88], color=MUTED, lw=0.7)
+    xs = x0 + j * len(COLS) * cw
+    tb.text(xs + len(COLS) * cw / 2, 0.93, f"{yr}年度", ha="center", va="center", fontsize=9.5, color=INK, weight="bold")
+    tb.plot([xs + 0.01, xs + len(COLS) * cw - 0.01], [0.88, 0.88], color=MUTED, lw=0.7)
     for k, (_, lab, _) in enumerate(COLS):
-        tb.text(xs + k * cw + cw / 2 - 0.01, yh, lab, ha="center", va="center", fontsize=7.8, color=INK,
-                linespacing=1.1)
+        tb.text(xs + k * cw + cw / 2, yh, lab, ha="center", va="center", fontsize=7.8, color=INK, linespacing=1.1)
 for i, (cs, (name, colr)) in enumerate(CASES.items()):
     y = yh - 0.12 - rh * (i + 0.5)
     if i % 2 == 0:
@@ -113,19 +123,20 @@ for i, (cs, (name, colr)) in enumerate(CASES.items()):
     tb.text(0.028, y, name, va="center", fontsize=9, color=INK)
     for j, yr in enumerate(YRS):
         for k, (col, _, nd) in enumerate(COLS):
-            xc = x0 + (j * 4 + k) * cw + cw / 2 - 0.01
-            if col == "rgdp_dev":
-                tb.text(xc, y, f"{dev.loc[(cs, yr)]:+.{nd}f}", ha="center", va="center", fontsize=9.5, color=INK,
+            xc = x0 + (j * len(COLS) + k) * cw + cw / 2
+            if col in DEV:
+                tb.text(xc, y, f"{DEV[col].loc[(cs, yr)]:+.{nd}f}", ha="center", va="center", fontsize=9.5, color=INK,
                         weight="bold")
             else:
-                tb.text(xc + 0.012, y, f"{c.loc[(cs, yr)][col]:.{nd}f}", ha="right", va="center", fontsize=9.5,
+                tb.text(xc + 0.006, y, f"{c.loc[(cs, yr)][col]:.{nd}f}", ha="right", va="center", fontsize=9.5,
                         color=INK, weight="bold")
-                tb.text(xc + 0.015, y, f"（{b.loc[(cs, yr)][col]:.{nd}f}）", ha="left", va="center", fontsize=8,
+                tb.text(xc + 0.008, y, f"（{b.loc[(cs, yr)][col]:.{nd}f}）", ha="left", va="center", fontsize=7.8,
                         color=PUBC)
 
-fig.text(0.03, 0.012, "資料：内閣府「中長期の経済財政に関する試算」（2026年1月）。減税なしの経路は同試算の3ケースを"
+fig.text(0.03, 0.01, "資料：内閣府「中長期の経済財政に関する試算」（2026年1月）。減税なしの経路は同試算の3ケースを"
          "経済財政モデル（2026年度版）の Python 再現（github.com/p72/cao-economic-fiscal-model、財政ブロック移植版）で"
-         "作り直したもの。減税は同モデルによる試算で、内閣府の試算ではない。", fontsize=7, color=MUTED)
+         "作り直したもの。\n減税は同モデルによる試算で、内閣府の試算ではない。賃金は一人当たり、実質賃金は名目賃金を消費者物価で割ったもの。",
+         fontsize=6.5, color=MUTED)
 
 fig.savefig(OUT, dpi=DPI, facecolor=BG)
 print(OUT)
