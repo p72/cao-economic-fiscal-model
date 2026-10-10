@@ -18,7 +18,7 @@
    交付金等の式。2025・2026年度は、歳出の代わりに国・地方の基礎的財政収支を合わせ、国の税収（所得税の調整項）と
    公債等残高比（普通国債残高の式）も合わせる。2026年度の歳出のモデルと資料の差（補正予算の基金からの支出とみなす）は、
    2027年度以降毎年半分ずつ減るとする。高成長実現ケースは資料に財政の表がないので、成長移行ケースの値を賃金上昇率の差で
-   延ばし、利払費は成長移行ケースで決めた誤差項を使う（成長移行ケースを先に計算する）。
+   延ばし（賃金上昇率の差の半分。歳出は物価・賃金上昇率並みに伸びるため）、利払費は成長移行ケースで決めた誤差項を使う（成長移行ケースを先に計算する）。
 4. 前提（付録1）
    - 人口：国立社会保障・人口問題研究所「日本の将来推計人口（令和5年推計）」出生中位（死亡中位）の男女・5歳階級別人口
      （表1-9A、5年おきの値を対数線形で補間）の伸び率を、2024年度の実績に掛ける。
@@ -136,7 +136,9 @@ def _scaled_koseicho() -> dict:
     ratio, r = [], 1.0
     for k in range(len(w_s)):
         if k > 2:
-            r *= (1 + w_k[k] / 100) / (1 + w_s[k] / 100)
+            # 歳出は「物価・賃金上昇率並み」に伸びる（資料の付録）。物価上昇率は2つのケースで同じなので、賃金上昇率の差の半分だけ
+            # 余分に伸ばす（賃金の差をそのまま使うと、歳出が伸びすぎて基礎的財政収支が成長移行ケースより悪くなる）
+            r *= 1 + (w_k[k] - w_s[k]) / 2 / 100
         ratio.append(r)
     out = {k: [x * q for x, q in zip(v, ratio)] for k, v in FISCAL_PUB["seicho"].items()}
     for k in ("国の税収", "国の基礎的財政収支", "地方の基礎的財政収支"):   # 2025・2026年度だけ使う（同じ値）
@@ -203,13 +205,18 @@ LOCAL_TARGETS = [("地方の税収", "Z_TXL"), ("地方交付税等", "Z_DST")]
 # 高め）によるので、国債ブロックの利払費（市場の金利）を上回る。差を利払費の式（Z_PINTBON）の誤差項で埋める。
 # 高成長実現ケースは資料に表がないので、成長移行ケースで決めた誤差項をそのまま使う
 INTEREST_TARGETS = [("国の利払費", "Z_PINTBON")]
+# 2027年度以降は、国の一般会計のその他収入の2026年度からの増減も資料に合わせる。モデルの式は2024年度の特殊要因分
+# （Z_REVOH2）まで名目GDPで伸ばすので資料より増え方が大きく、そのぶん国債の発行が減って公債等残高比が低く出る。
+# 特殊要因による増減額（Z_REVOHADJ）で調整する。水準はモデルと資料で定義が違う（2024年度に約10兆円、2026年度に約15兆円の差）
+# ので、2026年度の差を保つ。SNA には税外収入の数%しか入らないので、基礎的財政収支はほとんど動かない
+OTHER_REV_TARGETS = [("国のその他収入", "Z_REVOHADJ")]
 PINT_AF_FILE = ROOT / "data" / "processed" / "_pintbon_af_seicho.json"
 TARGETS = MACRO_TARGETS + LOCAL_TARGETS + INTEREST_TARGETS + [("国の基礎的財政収支", "Z_ADJEXPX35"), ("地方の基礎的財政収支", "Z_ADJLGEXTG"),
                            ("国の税収", "Z_ADJTXAG"), ("公債等残高（対GDP比）", "Z_GBNML2")]
 # 2027年度以降: マクロ＋歳出の水準（資料の財政の詳細計数表の国のPB対象経費・地方の歳出。補正予算を見込まない）。
 # 2026年度の SNA の支出には補正予算（基金）からの支出が入っているので、伸び率ではなく水準に合わせる
-FOLLOW_TARGETS = MACRO_TARGETS + LOCAL_TARGETS + INTEREST_TARGETS + [("国のPB対象経費", "Z_ADJEXPX35"), ("地方の一般歳出", "Z_ADJLGEXTG")]
-DATA_CTRL = {"Z_ADJTXAG", "Z_ADJEXPX35", "Z_ADJLGEXTG"}   # 誤差項ではなく外生変数で調整するもの
+FOLLOW_TARGETS = MACRO_TARGETS + LOCAL_TARGETS + INTEREST_TARGETS + OTHER_REV_TARGETS + [("国のPB対象経費", "Z_ADJEXPX35"), ("地方の一般歳出", "Z_ADJLGEXTG")]
+DATA_CTRL = {"Z_ADJTXAG", "Z_ADJEXPX35", "Z_ADJLGEXTG", "Z_REVOHADJ"}   # 誤差項ではなく外生変数で調整するもの
 KEEP_AF = {"Z_GBNML2"}      # 2027年度以降も2026年度の値のまま置く誤差項（残高の水準）
 
 
@@ -330,7 +337,10 @@ LG_OFFSET: dict = {}
 # 2026年度の歳出の、モデル（SNA の基礎的財政収支に合わせた水準）と資料（補正予算を含まない予算）の差。
 # 過去の補正予算による基金からの支出とみなし、2027年度以降は毎年 FUND_DECAY の割合で残るとする
 GAP: dict = {}
-FUND_DECAY = 0.5
+# 資料の国の表で、SNA の基礎的財政収支と予算ベースの収支（税収＋その他収入−PB対象経費）の差は、2026年度 −11.7兆円、
+# 2027年度 −5.2兆円、2028年度 −3.5〜−3.8兆円で、2029年度以降は −2.4兆円前後で落ち着く。落ち着いた値を上回る部分
+# （基金からの支出）は2027年度に約3割、2028年度に約1割強残るので、毎年3割ずつ残るとする
+FUND_DECAY = 0.3
 
 
 def item_values(data: dict, t: int) -> dict[str, float]:
@@ -378,7 +388,7 @@ def fit_year(s: Solver, t: int, case: str, sweeps: int = 16, tol: float = 0.01, 
     """
     targets = targets or TARGETS
     tgt = {name: target(case, name, t) + GAP.get(name, 0.0) * FUND_DECAY ** (t - 2026) for name, _ in targets}
-    step0 = {"M_RGB": 0.1, "M_RCO": 0.1, "Z_PINTBON": 1000.0, "Z_TXL": 500.0, "Z_DST": 500.0, "Z_ADJTXAG": 2000.0, "Z_GBNML2": 10000.0, "M_GDPP": 0.002, "Z_ADJEXPX35": 2000.0,
+    step0 = {"M_RGB": 0.1, "M_RCO": 0.1, "Z_PINTBON": 1000.0, "Z_TXL": 500.0, "Z_DST": 500.0, "Z_ADJTXAG": 2000.0, "Z_REVOHADJ": 1000.0, "Z_GBNML2": 10000.0, "M_GDPP": 0.002, "Z_ADJEXPX35": 2000.0,
              "Z_ADJLGEXTG": 2000.0}
 
     def get(v):
@@ -540,6 +550,7 @@ def run(case: str, mode: str = "calibrated") -> pd.DataFrame:
         if t in FIT_YEARS:
             fit_year(s, t, case, targets=fit_targets)
             if t == 2026:
+                LG_OFFSET["oh"] = data["Z_REVOH"][t] / 1000 - FISCAL_PUB[case]["国のその他収入"][t - 2024]
                 vals = item_values(data, t)
                 for name, _ in FOLLOW_TARGETS:
                     if name in FISCAL_PUB[case]:

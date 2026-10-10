@@ -21,7 +21,7 @@ import simulate as S
 
 ROOT = Path(__file__).resolve().parents[1]
 
-_JP = ["Noto Sans JP", "Yu Gothic", "Meiryo", "Hiragino Sans", "IPAexGothic", "Noto Sans CJK JP", "WenQuanYi Zen Hei"]
+_JP = ["Noto Sans JP", "Yu Gothic", "Meiryo", "Hiragino Sans", "IPAexGothic", "Noto Sans CJK JP", "WenQuanYi Zen Hei", "IPAGothic"]
 _HAVE = {f.name for f in matplotlib.font_manager.fontManager.ttflist}
 plt.rcParams["font.family"] = [f for f in _JP if f in _HAVE] + ["sans-serif"]
 INK, MUTED = "#0b0b0b", "#8a8984"

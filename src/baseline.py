@@ -85,7 +85,8 @@ PENSION_CONST = re.compile(r"^S_P(PIRC|BPRC|ENRC|BPSSR|ENSSR|NPRCIP|PICPIGZ|..TR
 
 # 財政ブロックの「1＋伸び率」の変数、比率、実効金利（%）、年金の CPI 上昇率（一定）。名目値と同じく伸ばすと、
 # 式との差が誤差項に入り年々大きくなって、水準を前向きに計算したときに歳出が雪だるま式に増える
-FISCAL_RATE = re.compile(r"^(Z_GREXP|Z_REXP|Z_EFRATE|S_PPICPIC$)")
+# 地方の計画・決算年度のダミー（Z_KEIKAKU、Z_KEIKAKUL、Z_KESSANL など）と交付税率（Z_RKF…）も一定
+FISCAL_RATE = re.compile(r"^(Z_GREXP|Z_REXP|Z_EFRATE|S_PPICPIC$|Z_KEIKAKU|Z_KESSAN|Z_YOSAN|Z_RKF)")
 # 普通国債ブロックの構成比・金利・価格・ダミー（一定）
 BOND_CONST = re.compile(r"^B_(RBHQ|RP|LSSPRD|IR|IC|YC|IPR|WB|RB|RDBNEW|DDBNEW|DUM|RISKPRM|RAGBZ)")
 # 医療・介護の加入者数・改定率（一定）
