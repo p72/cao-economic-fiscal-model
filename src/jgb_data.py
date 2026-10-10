@@ -4,7 +4,8 @@
 令和7年度以降の発行分だけを発行年度×年限で積み上げる。ここでは2025年度末（令和8年3月末）に残っている銘柄を
 既発債とし、2026年度以降の発行分をモデルで積み上げる。
 
-入力（財務省「国債関係資料」 https://www.mof.go.jp/jgbs/reference/appendix/ ）:
+入力（財務省「国債関係資料」 https://www.mof.go.jp/jgbs/reference/appendix/ 。銘柄別現在高は毎月更新され、同じ時点の版を
+再取得できないので、取得したファイルをリポジトリに同梱している）:
 - data/raw/mof_jgb/maturity_202603.xlsx: 普通国債の銘柄別現在高（令和8年3月末）。償還日・種類・回号・現在高（億円）
 - data/raw/mof_jgb/jgb_historical_data.xls: 国債の入札結果。年限ごとの回号・発行日・償還日・表面利率・落札額
 

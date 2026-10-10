@@ -18,7 +18,8 @@ SRC_F = ROOT / "output" / "scenario_fiscal_faithful.csv"
 OUT = ROOT / "output" / "scenario_fiscal.png"
 OUT_CMP = ROOT / "output" / "scenario_fiscal_compare.png"
 
-plt.rcParams["font.family"] = "Noto Sans JP"
+# 日本語フォント（入っているものを順に使う）
+plt.rcParams["font.family"] = ["Noto Sans JP", "Yu Gothic", "Meiryo", "Hiragino Sans", "IPAexGothic", "sans-serif"]
 INK, MUTED, GRID, SURF = "#0b0b0b", "#52514e", "#e4e3df", "#fcfcfb"
 COLORS = {"消費税減税": "#2a78d6", "所得税減税": "#eb6834", "公共投資": "#1baf7a"}
 PANELS = [

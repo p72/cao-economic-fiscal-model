@@ -15,8 +15,8 @@ data/processed/equations.json
 
 # ESRI から取得した統計表（src/fetch_sna.py で再取得できる）
 data/raw/*.xlsx
+# 財務省の国債の統計（data/raw/mof_jgb/）は、毎月更新されて同じ時点の版を再取得できないので同梱する
+!data/raw/mof_jgb/*.xlsx
 data/processed/baseline*.pkl
 data/processed/variables.json
 
-# 財務省から取得した国債の統計（src/jgb_data.py の説明にある URL から再取得できる）
-data/raw/mof_jgb/

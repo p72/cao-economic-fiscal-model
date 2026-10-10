@@ -2,4 +2,7 @@ pymupdf
 requests
 numpy
 pandas
+scipy
 matplotlib
+openpyxl
+xlrd
