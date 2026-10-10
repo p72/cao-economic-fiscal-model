@@ -42,6 +42,7 @@ def units(all_results: bool) -> list[tuple[str, str, list[str]]]:
         for c in SIM_CASES:
             u.append((f"乗数を計算（{mode}、{fiscal}、ケース{c}）", "simulate.py", opt + ["--case", str(c)]))
         u.append((f"乗数をまとめる（{mode}、{fiscal}）", "simulate.py", opt + ["--merge"]))
+        u.append((f"乗数表の図と Excel（{mode}、{fiscal}）", "plot_multipliers.py", opt))
     if all_results:
         for mode in ("calibrated", "faithful"):
             u.append((f"シナリオを計算（{mode}）", "scenario.py", ["--mode", mode]))

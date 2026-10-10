@@ -62,6 +62,7 @@
 > - 時間は15〜20分ほどです。途中で止まったら、同じコマンドをもう一度実行すれば続きから進みます。
 > - 結果は `output/` フォルダにできます。
 >   - `output/multipliers_port.csv`：公表乗数表（8ケース×5年）と再現モデルの比較
+>   - `output/multipliers_table_port_case1.png`〜`case8.png`、`output/multipliers_table_port.xlsx`：資料集と同じ体裁の主要乗数表（各欄の上段がモデル、下段が公表値）
 >   - `output/chuuchouki_sensitivity.png`：中長期試算（2026年1月）の感応度分析の再現（図）
 > - README のすべての図表（4通りの乗数表、減税・公共投資のシナリオの図など）を作るには `python run_all.py --all`（40〜60分）。
 >
@@ -118,6 +119,7 @@ py src/fetch_lfs.py            # 労働力調査（data/raw/lfs_fy.csv を同梱
 py src/published.py            # 公表乗数表の読み取り
 py src/baseline.py             # ベースライン（--mode faithful で原典どおり、--fiscal port で移植版）
 py src/simulate.py             # 8ケースの乗数 → output/multipliers.csv（faithful は _faithful、移植版は _port が付く）
+py src/plot_multipliers.py     # 資料集と同じ体裁の主要乗数表 → output/multipliers_table_port_case{1..8}.png、multipliers_table_port.xlsx（--fiscal simple で簡略版）
 py src/scenario.py             # シナリオ → output/scenario_fiscal.csv（faithful は scenario_fiscal_faithful.csv）
 py src/plot_scenario.py        # 図（--compare で2つのモードを重ねた図）
 py src/baseline.py --fiscal port --variant kako     # 中長期試算の過去投影ケースに近い標準ケース（seicho も）
@@ -191,6 +193,10 @@ py src/plot_chuuchouki.py      # その図
 | ⑧ 短期金利 1%pt引き上げ | 0.66 | 0.73 | 1.83 | 2.00 | 3.20 | 3.38 |
 
 全変数・全期間の比較は `output/multipliers.csv`（列 `model` と `published`）。
+
+資料集と同じ体裁の主要乗数表（3つの表×8ケース、各欄の上段がモデル、下段が公表値）は `src/plot_multipliers.py` で作る。移植版・calibrated の例（短期金利1%pt引き上げ）：
+
+![主要乗数表の再現（ケース⑧）](output/multipliers_table_port_case8.png)
 
 ### 方程式リストから変えたところ（`src/spec.py` の `EQ_FIX`、`FISCAL`）
 
