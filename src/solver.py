@@ -86,7 +86,8 @@ class Solver:
         return abs(x - x0) / max(abs(x0), 1.0)
 
     def solve_year(self, t: int, pinned: set[str] = frozenset(), swap: dict[str, str] | None = None,
-                   tol: float = 1e-10, max_iter: int = 500, calibrate_pinned: bool = True) -> int:
+                   tol: float = 1e-10, max_iter: int = 500, calibrate_pinned: bool = True,
+                   omegas: tuple[float, ...] | None = None) -> int:
         """その年の式を解く.
 
         まず Gauss-Seidel（式を順に1変数ニュートン法で解く）を試し、収束しない・発散するときは
@@ -99,7 +100,8 @@ class Solver:
                  if not (eq.name in pinned and eq.name not in swap)]
         start = {v: self.data[v][t] for _, v in order}
         n_iter = None
-        omegas = (0.5, 1.0, 0.3) if getattr(self.m, "fiscal", "simple") == "port" else (1.0, 0.5, 0.3)
+        if omegas is None:
+            omegas = (0.5, 1.0, 0.3) if getattr(self.m, "fiscal", "simple") == "port" else (1.0, 0.5, 0.3)
         for omega in omegas:
             try:
                 n_iter = self._gauss_seidel(order, t, tol, max_iter if omega == omegas[0] else 3 * max_iter, omega)
@@ -152,7 +154,13 @@ class Solver:
         def resid() -> np.ndarray:
             return np.array([self.residual(eq, t) for eq in eqs])
 
-        f = resid()
+        try:
+            f = resid()
+        except (ValueError, ZeroDivisionError, OverflowError):
+            # 途中の値で式が計算できない（対数の中が負など）ときは、前年度の値から始め直す
+            for c in cols:
+                c[t] = c.get(t - 1, c[t])
+            f = resid()
         for it in range(max_iter):
             J = np.zeros((n, n))
             for j, v in enumerate(vars_):

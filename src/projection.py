@@ -1,0 +1,430 @@
+"""内閣府「中長期の経済財政に関する試算」（2026年1月）の主要計数表（資料35ページ）を、このモデルで作り直す.
+
+資料: https://www5.cao.go.jp/keizai3/econome/r8chuuchouki2601.pdf （計数表「1.主要計数表」、付録1「詳細な前提」）
+
+方法（財政ブロック移植版、calibrated）
+1. 出発点は2024年度の実績。標準ケースは、実質ゼロ成長で物価だけが各ケースのGDPデフレーター変化率（過去投影0.7%、
+   成長移行・高成長実現1.6%）で伸びる経路（baseline.py の proj_kako・proj_seicho）とし、各式の誤差項（アドファクター）は
+   この経路で式がちょうど成り立つ値（中立の値）にする。国債・地方債ブロックの変数を参照する定義式（残高の足し上げ、
+   国債費など）の誤差項は、2024年度の値（実績との一定のずれ）で固定する。実質の成長は、下の前提（人口、労働参加率、TFP など）から
+   モデルの式で決まる。物価の基調だけは資料のケースに合わせている（資料に誤差項の置き方が書かれていないため）。
+2. 2025・2026年度は、資料の値（政府経済見通し等）に合うように、次の式の誤差項を決める（目標 ← 調整する式）。
+   実質GDP成長率 ← 民間消費、消費者物価上昇率 ← 消費者物価（生鮮食品を除く系列の式）、GDPデフレーター変化率 ← 輸出デフレーター、
+   完全失業率 ← 失業率、賃金上昇率 ← 一人当たり賃金、名目長期金利 ← 長期金利、
+   基礎的財政収支（対GDP比） ← 所得税（国）の調整項、公債等残高（対GDP比） ← 普通国債残高の式の誤差項
+   （合わせた分の残高は2027年度以降も残すが、その分の利払費は計算されない）。
+   2027年度以降は、これらの誤差項の中立の値からのずれを毎年半分ずつ戻す。所得税の調整項は2026年度の名目GDP比を保つ。
+3. 2027年度以降は、付録1の前提を外生変数に与えて解く。あわせて、GDPギャップの変化（実質成長率 − 潜在成長率）が
+   資料と同じになるよう、民間消費の式の誤差項を毎年決める（資料の各ケースでは、2027年度以降の実質成長率は潜在成長率と
+   ほぼ同じで、GDPギャップはほとんど動かない）。実質成長率は「モデルで計算した潜在成長率＋資料のギャップの変化」になる。
+   名目長期金利も資料の値に合わせる（長期金利の式の誤差項）。短期金利のテイラー・ルールの目標には潜在成長率が入っており、
+   実質ゼロ成長の中立の標準ケースで誤差項を合わせているため、潜在成長率が上がった分だけ金利が高く出るため。
+   モデルで計算する項目は、潜在成長率、名目GDP、1人当たり実質GDP、賃金、失業率、消費者物価、GDPデフレーター、
+   基礎的財政収支、公債等残高。
+   - 人口：国立社会保障・人口問題研究所「日本の将来推計人口（令和5年推計）」出生中位（死亡中位）の男女・5歳階級別人口
+     （表1-9A、5年おきの値を対数線形で補間）の伸び率を、2024年度の実績に掛ける。
+   - 労働参加率：2035年度の労働参加率（15歳以上人口に占める労働力人口）が資料の値（過去投影65.7%、成長移行66.9%）に
+     なるように、男女・年齢別の労働力率を「1−労働力率」に比例して直線的に引き上げる（JILPT の推計の代わりの簡略な方法）。
+   - ＴＦＰ上昇率：過去投影 0.6%、成長移行は2027年度から上がり2030年度に1.1%、高成長実現は2030年度に1.4%。
+     高成長実現ケースの労働参加率は成長移行ケースと同じ。資料の高成長実現ケースは「経済財政モデル（2018年度版）」の
+     乗数表を成長移行ケースに足して作られているが、ここではモデルで直接計算する。
+   - 世界経済：成長率 2027〜2030年度 2.7%、以降 2.5%。物価上昇率 2027〜2030年度 1.8%、以降 1.9%。
+   - 原油価格：2025・2026年度 68.1ドル、2027年度以降 73.7ドル（ドバイ）。
+   歳出は、モデルの式（物価・賃金・高齢化に連動）で決まる。防衛力強化、こども・子育て、国土強靱化などの個別の想定は
+   入れていない。
+出力: output/chuuchouki_projection.csv（列: case, item, year, model, published）
+"""
+from __future__ import annotations
+
+import copy
+import math
+import pickle
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+import baseline as BL
+from solver import Solver
+from spec import build
+
+ROOT = Path(__file__).resolve().parents[1]
+IPSS = ROOT / "data" / "raw" / "ipss" / "ipss2023_1-9A.xlsx"
+YEARS = list(range(2025, 2036))
+FIT_YEARS = (2025, 2026)
+AGES = ["1519", "2024", "2529", "3034", "3539", "4044", "4549", "5054", "5559", "6064", "6569", "70OV"]
+
+# 資料の主要計数表（2024～2035年度）
+PUB = {
+    "kako": {
+        "潜在成長率": [0.5, 0.6, 0.8, 0.7, 0.6, 0.6, 0.6, 0.5, 0.5, 0.5, 0.4, 0.4],
+        "実質GDP成長率": [0.5, 1.1, 1.3, 0.6, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.4, 0.4],
+        "名目GDP成長率": [3.7, 4.2, 3.4, 1.6, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.1, 1.1],
+        "名目GDP": [642.4, 669.2, 691.9, 703.1, 711.9, 720.5, 729.2, 737.9, 746.6, 755.2, 763.5, 771.7],
+        "1人当たり実質GDP成長率": [0.9, 1.5, 1.8, 1.1, 1.1, 1.0, 1.0, 1.1, 1.1, 1.0, 1.0, 1.0],
+        "賃金上昇率": [3.2, 3.2, 3.2, 1.6, 1.5, 1.4, 1.3, 1.2, 1.2, 1.2, 1.2, 1.2],
+        "完全失業率": [2.5, 2.5, 2.4, 2.4, 2.5, 2.5, 2.5, 2.6, 2.6, 2.6, 2.6, 2.6],
+        "消費者物価上昇率": [3.0, 2.6, 1.9, 1.4, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1],
+        "GDPデフレーター変化率": [3.2, 3.1, 2.0, 1.1, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7],
+        "名目長期金利": [1.1, 1.7, 2.1, 2.1, 2.0, 2.0, 2.0, 1.9, 1.9, 1.8, 1.8, 1.7],
+        "基礎的財政収支（対GDP比）": [-1.8, -1.0, -0.1, 0.6, 0.9, 1.0, 1.0, 1.0, 0.9, 0.9, 0.9, 0.8],
+        "公債等残高（対GDP比）": [193.5, 192.8, 186.6, 185.1, 184.4, 184.2, 184.1, 184.3, 184.8, 185.4, 186.3, 187.5],
+    },
+    "seicho": {
+        "潜在成長率": [0.5, 0.6, 0.8, 1.1, 1.3, 1.5, 1.6, 1.6, 1.5, 1.5, 1.4, 1.4],
+        "実質GDP成長率": [0.5, 1.1, 1.3, 1.1, 1.1, 1.3, 1.6, 1.6, 1.5, 1.5, 1.4, 1.4],
+        "名目GDP成長率": [3.7, 4.2, 3.4, 2.6, 2.7, 2.9, 3.2, 3.2, 3.1, 3.0, 3.0, 3.0],
+        "名目GDP": [642.4, 669.2, 691.9, 710.1, 729.2, 750.3, 774.4, 799.5, 824.6, 849.7, 875.4, 901.7],
+        "1人当たり実質GDP成長率": [0.9, 1.5, 1.8, 1.6, 1.6, 1.8, 2.1, 2.2, 2.1, 2.1, 2.1, 2.0],
+        "賃金上昇率": [3.2, 3.2, 3.2, 3.1, 3.0, 3.1, 3.1, 3.0, 3.0, 3.0, 3.0, 3.0],
+        "完全失業率": [2.5, 2.5, 2.4, 2.4, 2.5, 2.5, 2.6, 2.6, 2.6, 2.6, 2.6, 2.6],
+        "消費者物価上昇率": [3.0, 2.6, 1.9, 2.1, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0],
+        "GDPデフレーター変化率": [3.2, 3.1, 2.0, 1.6, 1.6, 1.6, 1.6, 1.6, 1.6, 1.6, 1.6, 1.6],
+        "名目長期金利": [1.1, 1.7, 2.1, 2.3, 2.5, 2.7, 2.9, 3.0, 3.1, 3.2, 3.3, 3.3],
+        "基礎的財政収支（対GDP比）": [-1.8, -1.0, -0.1, 0.6, 1.1, 1.3, 1.4, 1.6, 1.7, 1.7, 1.8, 1.8],
+        "公債等残高（対GDP比）": [193.5, 192.8, 186.6, 183.3, 180.1, 176.9, 173.5, 170.5, 167.9, 165.8, 164.0, 162.6],
+    },
+    "koseicho": {
+        "潜在成長率": [0.5, 0.6, 0.8, 1.2, 1.5, 1.9, 1.9, 2.0, 1.9, 1.9, 1.9, 1.9],
+        "実質GDP成長率": [0.5, 1.1, 1.3, 1.1, 1.2, 1.5, 1.8, 1.9, 1.9, 1.8, 1.8, 1.8],
+        "名目GDP成長率": [3.7, 4.2, 3.4, 2.7, 2.8, 3.1, 3.5, 3.6, 3.5, 3.4, 3.4, 3.4],
+        "名目GDP": [642.4, 669.2, 691.9, 710.5, 730.6, 753.6, 779.9, 807.8, 836.0, 864.5, 894.1, 924.5],
+        "1人当たり実質GDP成長率": [0.9, 1.5, 1.8, 1.6, 1.7, 2.0, 2.4, 2.5, 2.5, 2.4, 2.4, 2.4],
+        "賃金上昇率": [3.2, 3.2, 3.2, 3.2, 3.2, 3.4, 3.4, 3.4, 3.4, 3.4, 3.5, 3.5],
+        "完全失業率": [2.5, 2.5, 2.4, 2.4, 2.5, 2.5, 2.6, 2.6, 2.6, 2.6, 2.6, 2.6],
+        "消費者物価上昇率": [3.0, 2.6, 1.9, 2.1, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0],
+        "GDPデフレーター変化率": [3.2, 3.1, 2.0, 1.6, 1.6, 1.6, 1.6, 1.6, 1.6, 1.6, 1.6, 1.6],
+        "名目長期金利": [1.1, 1.7, 2.1, 2.4, 2.7, 3.0, 3.2, 3.3, 3.5, 3.6, 3.6, 3.7],
+        "基礎的財政収支（対GDP比）": [-1.8, -1.0, -0.1, 0.6, 1.1, 1.4, 1.6, 1.8, 1.9, 2.1, 2.2, 2.3],
+        "公債等残高（対GDP比）": [193.5, 192.8, 186.6, 183.2, 179.7, 176.1, 172.1, 168.4, 165.1, 162.3, 159.8, 157.6],
+    },
+}
+ITEMS = list(PUB["kako"])
+CASE_NAMES = {"kako": "過去投影ケース", "seicho": "成長移行ケース", "koseicho": "高成長実現ケース"}
+
+# 前提
+TFP = {"kako": {t: 0.6 for t in YEARS},
+       "seicho": {**{t: 0.6 for t in YEARS}, 2027: 0.7, 2028: 0.85, 2029: 1.0, **{t: 1.1 for t in range(2030, 2036)}},
+       "koseicho": {**{t: 0.6 for t in YEARS}, 2027: 0.75, 2028: 0.95, 2029: 1.2, **{t: 1.4 for t in range(2030, 2036)}}}
+LFR_2035 = {"kako": 65.7, "seicho": 66.9, "koseicho": 66.9}
+LFR_2024_PUB = 63.4
+WORLD_G = {t: (2.7 if t <= 2030 else 2.5) for t in YEARS}
+# 輸出の伸び = 世界経済成長率 − WORLD_G_BASE。過去10年（2014→2024年度）の日本の実質輸出の伸び（年2.1%、国民経済計算）は
+# 世界経済成長率（年3%程度、IMF）を0.9%pt程度下回ってきたので、その差を差し引く（推定）
+WORLD_G_BASE = 0.9
+WORLD_P = {t: (1.8 if t <= 2030 else 1.9) for t in YEARS}
+OIL = {t: (68.1 if t <= 2026 else 73.7) for t in YEARS}
+
+# 2025・2026年度の目標（資料の値）と、調整する式の誤差項
+TARGETS = [
+    ("実質GDP成長率", "M_CP"),
+    ("消費者物価上昇率", "M_CPIGA"),
+    ("GDPデフレーター変化率", "M_PXGS"),
+    ("完全失業率", "M_UR"),
+    ("賃金上昇率", "M_W"),
+    ("名目長期金利", "M_RGB"),
+    ("基礎的財政収支（対GDP比）", "Z_ADJTXAG"),   # 外生の調整項（所得税（国）の増減、10億円）
+    ("公債等残高（対GDP比）", "Z_GBNML2"),        # 普通国債残高の式の誤差項（10億円）。2027年度以降もそのまま残す
+]
+DATA_CTRL = {"Z_ADJTXAG"}   # 誤差項ではなく外生変数で調整するもの
+KEEP_AF = {"Z_GBNML2"}      # 2027年度以降も2026年度の値のまま置く誤差項（残高の水準）
+
+
+def _ipss_rows():
+    """社人研の表1-9A を (年, 年齢階級の表記, 男, 女, 総数) の行にする（千人）."""
+    import re
+    for _, df in pd.read_excel(IPSS, sheet_name=None, header=None).items():
+        year = None
+        for _, row in df.iterrows():
+            label = str(row[0]).strip().replace(" ", "").replace("　", "")
+            mt = re.match(r"^\(\d+\).*?\((\d{4})\)年$", label)
+            if mt:
+                year = int(mt.group(1))
+                continue
+            if year is not None and pd.notna(row[1]) and label != "nan":
+                yield year, label, float(row[2]), float(row[3]), float(row[1])
+
+
+def ipss_population() -> dict[int, dict[tuple[str, str], float]]:
+    """社人研の推計（5年おき）を、モデルの年齢区分（15〜19歳 … 70歳以上）× 男女に集計する（千人）."""
+    out = {}
+    for year, label, male, female, _ in _ipss_rows():
+        if label in ("総数", "0～14", "15～64", "65+"):
+            continue
+        lo = 100 if label == "100+" else int(label.split("～")[0])
+        if lo < 15:
+            continue
+        age = "70OV" if lo >= 70 else f"{lo:02d}{lo + 4:02d}"
+        d = out.setdefault(year, {})
+        d[(age, "M")] = d.get((age, "M"), 0.0) + male
+        d[(age, "F")] = d.get((age, "F"), 0.0) + female
+    return out
+
+
+def ipss_totals() -> dict[int, dict[str, float]]:
+    out = {}
+    for year, label, _, _, total in _ipss_rows():
+        key = {"総数": "total", "65+": "65+", "60～64": "6064"}.get(label)
+        if key:
+            out.setdefault(year, {})[key] = total
+    return out
+
+
+def interp(series: dict[int, float], t: int) -> float:
+    """5年おきの値を対数線形で補間する."""
+    ys = sorted(series)
+    lo = max(y for y in ys if y <= t)
+    hi = min(y for y in ys if y >= t)
+    if lo == hi:
+        return series[lo]
+    w = (t - lo) / (hi - lo)
+    return math.exp((1 - w) * math.log(series[lo]) + w * math.log(series[hi]))
+
+
+def set_population(data: dict) -> None:
+    pop = ipss_population()
+    tot = ipss_totals()
+    for age in AGES:
+        for sex in ("M", "F"):
+            s = {y: pop[y][(age, sex)] for y in pop}
+            v = f"P_POP{age}{sex}"
+            base = data[v][2024]
+            for t in YEARS:
+                data[v][t] = base * interp(s, t) / interp(s, 2024)
+    s_tot = {y: tot[y]["total"] for y in tot}
+    s65 = {y: tot[y]["65+"] for y in tot}
+    s60 = {y: tot[y]["65+"] + tot[y]["6064"] for y in tot}
+    for v, s in (("P_POP", s_tot), ("P_POP65OV", s65), ("P_POP60OV", s60)):
+        if v in data:
+            base = data[v][2024]
+            for t in YEARS:
+                data[v][t] = base * interp(s, t) / interp(s, 2024)
+
+
+def lf_rate(data: dict, t: int) -> float:
+    lf = sum(data[f"P_POP{a}{s}"][t] * data[f"P_RLF{a}{s}"][t] for a in AGES for s in ("M", "F"))
+    pop = sum(data[f"P_POP{a}{s}"][t] for a in AGES for s in ("M", "F"))
+    return lf / pop * 100
+
+
+def set_participation(data: dict, case: str) -> None:
+    """2035年度の労働参加率が資料の値になるよう、男女・年齢別の労働力率を「1−率」に比例して直線的に上げる."""
+    base = {(a, s): data[f"P_RLF{a}{s}"][2024] for a in AGES for s in ("M", "F")}
+    target = lf_rate(data, 2024) + (LFR_2035[case] - LFR_2024_PUB)
+
+    def apply(k: float) -> None:
+        for t in YEARS:
+            w = (t - 2024) / (2035 - 2024)
+            for (a, s), r in base.items():
+                data[f"P_RLF{a}{s}"][t] = r + k * w * (1 - r)
+
+    lo, hi = 0.0, 0.5
+    for _ in range(60):
+        k = (lo + hi) / 2
+        apply(k)
+        if lf_rate(data, 2035) < target:
+            lo = k
+        else:
+            hi = k
+    apply((lo + hi) / 2)
+
+
+def set_world(data: dict, case: str) -> None:
+    tfp0 = data["M_TFP"][2024]
+    acc = 0.0
+    for t in YEARS:
+        acc += TFP[case][t] / 100
+        data["M_TFP"][t] = tfp0 + acc
+        # 輸出の式は dlog(M_XGS)-MWE_GGDP=… で、成長率を小数で使う。データの値（%）との差は誤差項が吸収しているので、
+        # 標準ケースの値からの変化分を小数で足す
+        data["MWE_GGDP"][t] = data["MWE_GGDP"][2024] + (WORLD_G[t] - WORLD_G_BASE) / 100
+        data["MWE_WPI"][t] = data["MWE_WPI"][t - 1] * (1 + WORLD_P[t] / 100)
+        data["MUS_WPI"][t] = data["MUS_WPI"][t - 1] * (1 + WORLD_P[t] / 100)
+        data["M_POILD"][t] = OIL[t]
+
+
+def item_values(data: dict, t: int) -> dict[str, float]:
+    g = lambda v: (data[v][t] / data[v][t - 1] - 1) * 100
+    return {
+        "潜在成長率": g("M_GDPP"),
+        "実質GDP成長率": g("M_GDP"),
+        "名目GDP成長率": g("M_GDPV"),
+        "名目GDP": data["M_GDPV"][t] / 1000,
+        "1人当たり実質GDP成長率": ((data["M_GDP"][t] / data["P_POP"][t]) / (data["M_GDP"][t - 1] / data["P_POP"][t - 1])
+                              - 1) * 100,
+        "賃金上昇率": g("M_W"),
+        "完全失業率": data["M_UR"][t],
+        "消費者物価上昇率": g("M_CPIG"),
+        "GDPデフレーター変化率": g("M_PGDP"),
+        "名目長期金利": data["M_RGB"][t],
+        "基礎的財政収支（対GDP比）": data["M_PBGAGDPV"][t],
+        "公債等残高（対GDP比）": data["Z_DEBTAGDP"][t],
+    }
+
+
+def fit_year(s: Solver, t: int, case: str, sweeps: int = 8, tol: float = 0.01) -> None:
+    """2025・2026年度: 目標の値になるよう、対応する式の誤差項（所得税・国債は調整項）を決める.
+
+    各目標はほぼ対応する1つの調整項だけで動くので、目標を1つずつ割線法で合わせ、全体を何周か繰り返す。
+    """
+    tgt = {name: PUB[case][name][t - 2024] for name, _ in TARGETS}
+    step0 = {"M_RGB": 0.1, "Z_ADJTXAG": 2000.0, "Z_GBNML2": 10000.0}
+
+    def get(v):
+        return s.data[v][t] if v in DATA_CTRL else s.af[v][t]
+
+    def put(v, x):
+        if v in DATA_CTRL:
+            s.data[v][t] = x
+        else:
+            s.af[v][t] = x
+
+    def value(name):
+        solve(s, t)
+        return item_values(s.data, t)[name]
+
+    solve(s, t)
+    for sweep in range(sweeps):
+        worst = 0.0
+        for name, v in TARGETS:
+            y0 = item_values(s.data, t)[name] - tgt[name]
+            worst = max(worst, abs(y0))
+            if abs(y0) < tol / 2:
+                continue
+            x0 = get(v)
+            x1 = x0 + step0.get(v, 0.005) * (1 if y0 < 0 else -1) * (1 if name != "完全失業率" else 1)
+            put(v, x1)
+            y1 = value(name) - tgt[name]
+            for _ in range(6):
+                if abs(y1) < tol / 2 or y1 == y0:
+                    break
+                x2 = x1 - y1 * (x1 - x0) / (y1 - y0)
+                x0, y0, x1 = x1, y1, x2
+                put(v, x1)
+                y1 = value(name) - tgt[name]
+        if worst < tol:
+            break
+    vals = item_values(s.data, t)
+    print(f"  {t}年度の合わせ込み: 目標との差 " + "、".join(f"{n} {vals[n] - tgt[n]:+.2f}" for n, _ in TARGETS), flush=True)
+
+
+def follow_gap(s: Solver, t: int, case: str, tol: float = 0.005) -> None:
+    """2027年度以降: GDPギャップの変化（実質成長率 − 潜在成長率）と名目長期金利が資料と同じになるよう、
+    民間消費の式と長期金利の式の誤差項を決める（長期金利は FOLLOW_RATE のとき）."""
+    k = t - 2024
+    gap_target = PUB[case]["実質GDP成長率"][k] - PUB[case]["潜在成長率"][k]
+    rate_target = PUB[case]["名目長期金利"][k]
+
+    def gap_change():
+        v = item_values(s.data, t)
+        return v["実質GDP成長率"] - v["潜在成長率"] - gap_target
+
+    solve(s, t)
+    for _ in range(6):
+        if FOLLOW_RATE:      # 長期金利の式は水準の式なので、ずれをそのまま誤差項に足す
+            s.af["M_RGB"][t] += rate_target - s.data["M_RGB"][t]
+            solve(s, t)
+        y0 = gap_change()
+        if abs(y0) < tol and (not FOLLOW_RATE or abs(s.data["M_RGB"][t] - rate_target) < tol):
+            return
+        x0 = s.af["M_CP"][t]
+        x1 = x0 - 0.005 * (1 if y0 > 0 else -1)
+        s.af["M_CP"][t] = x1
+        solve(s, t)
+        y1 = gap_change()
+        for _ in range(8):
+            if abs(y1) < tol or y1 == y0:
+                break
+            x2 = x1 - y1 * (x1 - x0) / (y1 - y0)
+            x0, y0, x1 = x1, y1, x2
+            s.af["M_CP"][t] = x1
+            solve(s, t)
+            y1 = gap_change()
+
+
+VARIANT = {"kako": "proj_kako", "seicho": "proj_seicho", "koseicho": "proj_seicho"}
+FOLLOW_RATE = True  # 2027年度以降、名目長期金利を資料に合わせる（長期金利の式の誤差項で調整）
+FOLLOW_GAP = True  # 2027年度以降、GDPギャップの変化を資料に合わせる（消費の誤差項で調整）
+DEBUG_DIR = None   # 途中の値を保存するフォルダ（調査用）
+DECAY = 0.5   # 2025・2026年度に合わせた誤差項の、中立の値からのずれが毎年残る割合
+
+
+def solve(s: Solver, t: int) -> None:
+    """その年を解く。収束しないときは歩幅を小さくして解き直す."""
+    try:
+        s.solve_year(t, calibrate_pinned=False)
+    except (RuntimeError, ValueError, OverflowError, ZeroDivisionError):
+        s.solve_year(t, calibrate_pinned=False, omegas=(0.2,), max_iter=3000)
+
+
+def run(case: str, mode: str = "calibrated") -> pd.DataFrame:
+    m = build(mode, "port")
+    with BL.out_path(mode, "port", VARIANT[case]).open("rb") as f:
+        b = pickle.load(f)
+    data, af = copy.deepcopy(b["data"]), copy.deepcopy(b["af"])
+    # 国債・地方債ブロックの変数を参照する定義式（残高の足し上げ、国債費、公債費など）の誤差項は、2024年度の値（実績との
+    # 一定のずれ）で固定する。標準ケースでは国債・地方債ブロックだけを前向きに解き直したので、受け取る側の定義式の誤差項に
+    # 合成の経路とのずれが入り、年々大きくなっているため（例: 普通国債残高 Z_GBNML の足し上げ）
+    import bond_port
+    bond_vars = bond_port.endogenous()
+    for eq in m.eqs:
+        if (eq.name not in bond_vars and not m.meta.get(eq.name, {}).get("estimated", False)
+                and set(eq.vars) & bond_vars and 2024 in af[eq.name]):
+            for t in YEARS:
+                af[eq.name][t] = af[eq.name][2024]
+    neutral = {v: dict(af[v]) for _, v in TARGETS if v not in DATA_CTRL}
+    set_population(data)
+    set_participation(data, case)
+    set_world(data, case)
+    s = Solver(m, data, af)
+    for t in YEARS:
+        if t in FIT_YEARS:
+            fit_year(s, t, case)
+        else:
+            k = DECAY ** (t - 2026)
+            for _, v in TARGETS:
+                if v in KEEP_AF:
+                    af[v][t] = af[v][2026]
+                elif v in DATA_CTRL:        # 所得税の調整項は2026年度の名目GDP比を保つ
+                    data[v][t] = data[v][2026] / data["M_GDPV"][2026] * data["M_GDPV"][t - 1]
+                else:
+                    af[v][t] = neutral[v][t] + k * (af[v][2026] - neutral[v][2026])
+            if FOLLOW_GAP:
+                follow_gap(s, t, case)
+            else:
+                solve(s, t)
+        if DEBUG_DIR:
+            with (Path(DEBUG_DIR) / f"proj_state_{case}.pkl").open("wb") as fdbg:
+                pickle.dump({"data": data, "af": af, "t": t}, fdbg)
+        print(f"{case} {t}: 実質 {item_values(data, t)['実質GDP成長率']:.2f}% 名目GDP {data['M_GDPV'][t] / 1000:.1f}兆円 "
+              f"PB {data['M_PBGAGDPV'][t]:.2f} 残高比 {data['Z_DEBTAGDP'][t]:.1f}", flush=True)
+    if DEBUG_DIR:
+        with (Path(DEBUG_DIR) / f"proj_state_{case}.pkl").open("wb") as f:
+            pickle.dump({"data": data, "af": af}, f)
+    rows = []
+    for t in [2024] + YEARS:
+        vals = item_values(data, t)
+        for k_ in ITEMS:
+            # 2024年度は実績。前年度（2023年度）の実績をモデルに入れていないので、伸び率は資料の値を表示する
+            mv = PUB[case][k_][0] if t == 2024 else vals[k_]
+            rows.append((case, k_, t, mv, PUB[case][k_][t - 2024]))
+    return pd.DataFrame(rows, columns=["case", "item", "year", "model", "published"])
+
+
+def main(mode: str = "calibrated", cases=tuple(PUB)) -> pd.DataFrame:
+    out = ROOT / "output" / "chuuchouki_projection.csv"
+    res = pd.concat([run(c, mode) for c in cases], ignore_index=True)
+    if out.exists() and len(cases) < len(PUB):   # 1ケースだけ計算したときは、ほかのケースの結果を残す
+        old = pd.read_csv(out)
+        res = pd.concat([old[~old["case"].isin(cases)], res], ignore_index=True)
+    res.to_csv(out, index=False)
+    print(f"→ {out}")
+    return res
+
+
+if __name__ == "__main__":
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--case", choices=list(PUB), help="1つのケースだけ計算する")
+    a = ap.parse_args()
+    main(cases=(a.case,) if a.case else tuple(PUB))

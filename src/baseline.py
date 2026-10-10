@@ -37,6 +37,10 @@ VARIANTS = {
     "standard": {"g_real": 0.005, "g_price": 0.02, "rates": None},
     "kako": {"g_real": 0.005, "g_price": 0.007, "rates": {"M_RGB": 2.0, "M_RCO": 2.0 - 0.87}},
     "seicho": {"g_real": 0.014, "g_price": 0.016, "rates": {"M_RGB": 3.0, "M_RCO": 3.0 - 0.87}},
+    # 主要計数表の再現（projection.py）の出発点: 実質ゼロ成長で、物価だけが各ケースのGDPデフレーター変化率で伸びる経路。
+    # 実質の成長は、人口・労働参加率・TFP などの前提を与えてモデルの式から出す
+    "proj_kako": {"g_real": 0.0, "g_price": 0.007, "rates": {"M_RGB": 2.0, "M_RCO": 2.0 - 0.87}},
+    "proj_seicho": {"g_real": 0.0, "g_price": 0.016, "rates": {"M_RGB": 3.0, "M_RCO": 3.0 - 0.87}},
 }
 
 
@@ -79,6 +83,9 @@ CONST = {
 PENSION_CONST = re.compile(r"^S_P(PIRC|BPRC|ENRC|BPSSR|ENSSR|NPRCIP|PICPIGZ|..TRBPN|..INSPN|..BNFTN|"
                            r"NPIPRMAZ|..DC..\$|..IPRM\$|PI...\$|PIFUNDBD\$|PIRT...\$Z|PIPROR\$2|NPIPPY\$Z)")
 
+# 財政ブロックの「1＋伸び率」の変数、比率、実効金利（%）、年金の CPI 上昇率（一定）。名目値と同じく伸ばすと、
+# 式との差が誤差項に入り年々大きくなって、水準を前向きに計算したときに歳出が雪だるま式に増える
+FISCAL_RATE = re.compile(r"^(Z_GREXP|Z_REXP|Z_EFRATE|S_PPICPIC$)")
 # 普通国債ブロックの構成比・金利・価格・ダミー（一定）
 BOND_CONST = re.compile(r"^B_(RBHQ|RP|LSSPRD|IR|IC|YC|IPR|WB|RB|RDBNEW|DDBNEW|DUM|RISKPRM|RAGBZ)")
 # 医療・介護の加入者数・改定率（一定）
@@ -88,7 +95,8 @@ MEDCARE_CONST = re.compile(r"^S_(M..INSP|MY.INSP|CCI.INSN$|MMIRCCF$|CCIRCCF$)")
 def growth(v: str) -> float:
     if v == "M_TIME":
         return 0.0
-    if v.startswith("S_P") and PENSION_CONST.match(v) or MEDCARE_CONST.match(v) or BOND_CONST.match(v):
+    if (v.startswith("S_P") and PENSION_CONST.match(v) or MEDCARE_CONST.match(v) or BOND_CONST.match(v)
+            or FISCAL_RATE.match(v)):
         return 0.0
     if v in REAL:
         return G_REAL
