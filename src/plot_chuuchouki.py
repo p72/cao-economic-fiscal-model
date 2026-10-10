@@ -9,6 +9,7 @@ from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
+import matplotlib.font_manager
 import matplotlib.pyplot as plt
 import pandas as pd
 
@@ -16,8 +17,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "output" / "chuuchouki_sensitivity.csv"
 OUT = ROOT / "output" / "chuuchouki_sensitivity.png"
 
-# 日本語フォント（入っているものを順に使う）
-plt.rcParams["font.family"] = ["Noto Sans JP", "Yu Gothic", "Meiryo", "Hiragino Sans", "IPAexGothic", "sans-serif"]
+# 日本語フォント（候補のうち、このパソコンに入っているものを使う）
+_JP = ["Noto Sans JP", "Yu Gothic", "Meiryo", "Hiragino Sans", "IPAexGothic", "Noto Sans CJK JP"]
+_HAVE = {f.name for f in matplotlib.font_manager.fontManager.ttflist}
+plt.rcParams["font.family"] = [f for f in _JP if f in _HAVE] + ["sans-serif"]
 INK, MUTED, GRID, SURF = "#0b0b0b", "#52514e", "#e4e3df", "#fcfcfb"
 COLORS = {"kako": "#2a78d6", "seicho": "#eb6834"}
 VNAME = {"kako": "過去投影ケース対比", "seicho": "成長移行ケース対比"}

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
+import matplotlib.font_manager
 import matplotlib.pyplot as plt
 import pandas as pd
 
@@ -18,8 +19,10 @@ SRC_F = ROOT / "output" / "scenario_fiscal_faithful.csv"
 OUT = ROOT / "output" / "scenario_fiscal.png"
 OUT_CMP = ROOT / "output" / "scenario_fiscal_compare.png"
 
-# 日本語フォント（入っているものを順に使う）
-plt.rcParams["font.family"] = ["Noto Sans JP", "Yu Gothic", "Meiryo", "Hiragino Sans", "IPAexGothic", "sans-serif"]
+# 日本語フォント（候補のうち、このパソコンに入っているものを使う）
+_JP = ["Noto Sans JP", "Yu Gothic", "Meiryo", "Hiragino Sans", "IPAexGothic", "Noto Sans CJK JP"]
+_HAVE = {f.name for f in matplotlib.font_manager.fontManager.ttflist}
+plt.rcParams["font.family"] = [f for f in _JP if f in _HAVE] + ["sans-serif"]
 INK, MUTED, GRID, SURF = "#0b0b0b", "#52514e", "#e4e3df", "#fcfcfb"
 COLORS = {"消費税減税": "#2a78d6", "所得税減税": "#eb6834", "公共投資": "#1baf7a"}
 PANELS = [
