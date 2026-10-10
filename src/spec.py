@@ -26,9 +26,10 @@ SEXES = ["F", "M"]
 # ---------------------------------------------------------------------------
 FISCAL = {
     # --- 税収 ---
-    # 消費税：原典の Z_TCIVB と同じ課税ベース（軽減税率は使わない）
-    "Z_TCIVB": "Z_TCIVB=(Z_RTCIV/(1+Z_RTCIV))*(M_VATACP$*M_CPV+M_IHPV+M_VATACG$*M_CGV+M_VATAIG$*M_IGV)",
-    "Z_TCIV": "Z_TCIV=Z_TCIVB",
+    # 消費税：原典の Z_TCIVB（標準税率分）と Z_TCIVR（軽減税率分）と同じ課税ベース
+    "Z_TCIVB": "Z_TCIVB=(Z_RTCIV/(1+Z_RTCIV))*(M_VATACP$*M_CPV*(1-Z_RTCIV2$)+M_IHPV+M_VATACG$*M_CGV+M_VATAIG$*M_IGV)",
+    "Z_TCIVR": "Z_TCIVR=(Z_RTCIV2/(1+Z_RTCIV2))*(M_VATACP$*M_CPV*Z_RTCIV2$)",
+    "Z_TCIV": "Z_TCIV=Z_TCIVB+Z_TCIVR",
     "Z_TCIVC": "Z_TCIVC=Z_TCIV*Z_TCIVC$",
     "Z_TCIVL": "Z_TCIVL=Z_TCIV-Z_TCIVC",
     # その他の間接税：名目GDP並み

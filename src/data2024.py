@@ -40,7 +40,10 @@ ASSUMED = {
     "M_MPVDP": 0.85,     # 減価償却の現在価値
     "M_PSTAR": 2.0, "M_PSTARBOJ": 2.0,  # 期待インフレ率、均衡期待インフレ率（%）
     "MWE_GGDP": 3.0,     # 世界経済成長率（%）
-    "Z_RTCIV": 0.10, "Z_RTCIV2": 0.08, "Z_RTCIV2$": 0.0,  # 消費税率（軽減税率は使わない）
+    "Z_RTCIV": 0.10, "Z_RTCIV2": 0.08,  # 消費税率（標準税率、軽減税率）
+    # 民間消費の課税ベースに占める軽減税率対象（飲食料品・新聞）の割合。軽減税率による減収（約1兆円）を
+    # 2%ptの税率差で割ると課税ベースは税込みで約59兆円になり、民間消費の課税ベースの約2割に当たる
+    "Z_RTCIV2$": 0.2,
     "M_VATAIG$": 1.0,    # 公共投資の課税標準率
     "Z_MATC$": 8.0, "Z_MATL$": 10.0,  # 借換えで平均調達金利が市場金利に近づく速さ（年）
     "M_YIGVCRLR": 400.0, "M_YIGVLRLR": 50.0,  # 国債・地方債以外の利払費（概数）
@@ -135,7 +138,7 @@ def build(mode: str = "calibrated") -> dict[str, float]:
     prod = sec("１．生産・輸入品に課される税")
     cur = sec("８．所得・富等に課される経常税")
     d["Z_TCIVC"], d["Z_TCIVL"] = vat[C], vat[L]
-    d["Z_TCIV"] = d["Z_TCIVB"] = vat[C] + vat[L]
+    d["Z_TCIV"] = vat[C] + vat[L]   # Z_TCIVB（標準税率分）と Z_TCIVR（軽減税率分）への分割は後で
     d["Z_TCIVC$"] = vat[C] / d["Z_TCIV"]
     d["Z_OITAXVC"], d["Z_OITAXVL"] = prod[C] - vat[C], prod[L] - vat[L]
     d["M_TAXC"], d["M_TAXL"] = prod[C] + cur[C], prod[L] + cur[L]
@@ -298,9 +301,13 @@ def build(mode: str = "calibrated") -> dict[str, float]:
     vatacg = (d["M_CGV"] - d["M_YWGV"] - d["M_CGVIFE"] - dsum
               - (d["M_FCRAR"] + d["M_FLRAR"] + d["M_FFRAR"] + d["M_FCRLR"] + d["M_FLRLR"] + d["M_FFRLR"])) / d["M_CGV"]
     d["M_VATACG$"] = vatacg
-    base = d["Z_TCIV"] * (1 + d["Z_RTCIV"]) / d["Z_RTCIV"]
-    d["M_VATACP$"] = (base - d["M_IHPV"] - vatacg * d["M_CGV"] - d["M_VATAIG$"] * d["M_IGV"]) / d["M_CPV"]
-    tax_share = d["Z_RTCIV"] * d["M_VATACP$"] / (1 + d["Z_RTCIV"])
+    # 原典の Z_TCIVB（標準税率分）+ Z_TCIVR（軽減税率分）= Z_TCIV から民間消費の課税標準率を逆算する
+    r, r2, s = d["Z_RTCIV"] / (1 + d["Z_RTCIV"]), d["Z_RTCIV2"] / (1 + d["Z_RTCIV2"]), d["Z_RTCIV2$"]
+    other = d["M_IHPV"] + vatacg * d["M_CGV"] + d["M_VATAIG$"] * d["M_IGV"]
+    d["M_VATACP$"] = (d["Z_TCIV"] - r * other) / (d["M_CPV"] * (r * (1 - s) + r2 * s))
+    d["Z_TCIVR"] = r2 * d["M_VATACP$"] * d["M_CPV"] * s
+    d["Z_TCIVB"] = d["Z_TCIV"] - d["Z_TCIVR"]
+    tax_share = d["M_VATACP$"] * (r * (1 - s) + r2 * s)
     d["M_CPIGA"] = d["M_CPIG"] * (1 - tax_share)
     d["M_PCPA"] = d["M_PCP"] * (1 - tax_share)
     # 消費税抜きのデフレーター（原典の定義式を逆に解く）

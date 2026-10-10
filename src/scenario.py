@@ -37,11 +37,15 @@ def shock(name: str, data: dict, base: dict) -> None:
     for t in YEARS:
         size = 0.01 * base["M_GDPV"][t]
         if name == "ctax":
-            # 事前の税収減が名目GDPの1%になるだけ消費税率を下げる（課税ベースは標準ケースの値）
-            rt = base["Z_RTCIV"][t]
-            taxbase = base["Z_TCIVB"][t] / (rt / (1 + rt))
-            share = rt / (1 + rt) - size / taxbase
-            data["Z_RTCIV"][t] = share / (1 - share)
+            # 事前の税収減が名目GDPの1%になるだけ、標準税率と軽減税率を同じ幅で下げる（課税ベースは標準ケースの値）
+            rt, rt2 = base["Z_RTCIV"][t], base["Z_RTCIV2"][t]
+            b1, b2 = base["Z_TCIVB"][t] / (rt / (1 + rt)), base["Z_TCIVR"][t] / (rt2 / (1 + rt2))
+            cut = lambda x: b1 * (rt / (1 + rt) - (rt - x) / (1 + rt - x)) + b2 * (rt2 / (1 + rt2) - (rt2 - x) / (1 + rt2 - x))  # noqa: E731
+            lo, hi = 0.0, rt2
+            for _ in range(60):
+                mid = (lo + hi) / 2
+                lo, hi = (mid, hi) if cut(mid) < size else (lo, mid)
+            data["Z_RTCIV"][t], data["Z_RTCIV2"][t] = rt - lo, rt2 - lo
         elif name == "itax":
             data["Z_TYPVX"][t] = -size
         elif name == "pubinv":

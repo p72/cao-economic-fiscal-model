@@ -89,8 +89,9 @@ def shock(case: int, data: dict, base: dict, fiscal: str = "simple") -> set[str]
                 data["Z_ADJTXAG"][t] = base["Z_ADJTXAG"][t] + 0.01 * base["M_GDPV"][t]
             else:
                 data["Z_TYPVX"][t] = 0.01 * base["M_GDPV"][t]
-        elif case == 5:
+        elif case == 5:  # 標準税率と軽減税率をともに1%pt引き上げる
             data["Z_RTCIV"][t] = base["Z_RTCIV"][t] + 0.01
+            data["Z_RTCIV2"][t] = base["Z_RTCIV2"][t] + 0.01
         elif case == 6:
             data["M_TFP"][t] = base["M_TFP"][t] + 0.01 * (k + 1)
         elif case == 7:
