@@ -155,14 +155,12 @@ def run(case: int, model=None, base_data=None, af=None) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["case", "var", "period", "model"])
 
 
-def main(mode: str = "calibrated", fiscal: str = "simple") -> pd.DataFrame:
-    m = build(mode, fiscal)
-    base_data, af = load(mode, fiscal)
-    # 標準ケースがそのまま再現されることを確認する
-    chk = run(0, m, base_data, af)
-    worst = chk["model"].abs().max()
-    print(f"ショックなしの乖離の最大値: {worst:.2e}")
-    res = pd.concat([run(c, m, base_data, af) for c in P.CASES], ignore_index=True)
+def part_path(mode: str, fiscal: str, case: int) -> Path:
+    """ケースごとの途中結果（run_all.py --next で1ケースずつ計算するとき）."""
+    return ROOT / "output" / "parts" / f"multipliers{BL.suffix(mode, fiscal)}_case{case}.csv"
+
+
+def finish(res: pd.DataFrame, mode: str, fiscal: str) -> pd.DataFrame:
     pub = pd.read_csv(P.OUT) if P.OUT.exists() else P.main()
     res = res.merge(pub.rename(columns={"value": "published"}), on=["case", "var", "period"], how="left")
     out = out_path(mode, fiscal)
@@ -172,13 +170,41 @@ def main(mode: str = "calibrated", fiscal: str = "simple") -> pd.DataFrame:
     return res
 
 
+def main(mode: str = "calibrated", fiscal: str = "simple", case: int | None = None,
+         merge: bool = False) -> pd.DataFrame | None:
+    """全ケースを計算する。case を指定するとそのケースだけ計算して途中結果に保存し、
+    merge=True なら途中結果をまとめて最終の出力にする."""
+    if merge:
+        res = pd.concat([pd.read_csv(part_path(mode, fiscal, c)) for c in P.CASES], ignore_index=True)
+        return finish(res, mode, fiscal)
+    m = build(mode, fiscal)
+    base_data, af = load(mode, fiscal)
+    if case is not None:
+        res = run(case, m, base_data, af)
+        out = part_path(mode, fiscal, case)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        res.to_csv(out, index=False)
+        print(f"→ {out}")
+        return None
+    # 標準ケースがそのまま再現されることを確認する
+    chk = run(0, m, base_data, af)
+    worst = chk["model"].abs().max()
+    print(f"ショックなしの乖離の最大値: {worst:.2e}")
+    res = pd.concat([run(c, m, base_data, af) for c in P.CASES], ignore_index=True)
+    return finish(res, mode, fiscal)
+
+
 if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", default="calibrated", choices=["calibrated", "faithful"])
     ap.add_argument("--fiscal", default="simple", choices=["simple", "port"])
+    ap.add_argument("--case", type=int, choices=list(P.CASES), help="このケースだけ計算する（途中結果に保存）")
+    ap.add_argument("--merge", action="store_true", help="ケースごとの途中結果をまとめる")
     a = ap.parse_args()
-    r = main(a.mode, a.fiscal)
+    r = main(a.mode, a.fiscal, a.case, a.merge)
+    if r is None:
+        raise SystemExit(0)
     pd.set_option("display.width", 200)
     for c in P.CASES:
         x = r[(r.case == c) & r["var"].isin(["M_GDP", "M_CPIG", "M_RCO", "M_UR", "M_PBGAGDPV", "Z_DEBTAGDP"])]

@@ -146,8 +146,26 @@ def run(case: str, variant: str, mode: str = "calibrated") -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["case", "variant", "var", "year", "model"])
 
 
-def main(mode: str = "calibrated") -> pd.DataFrame:
-    res = pd.concat([run(c, v, mode) for c, vs in CASES.items() for v in vs], ignore_index=True)
+def part_path(case: str, variant: str, mode: str = "calibrated") -> Path:
+    """ケースごとの途中結果（run_all.py --next で1つずつ計算するとき）."""
+    return ROOT / "output" / "parts" / f"chuuchouki{'' if mode == 'calibrated' else '_' + mode}_{case}_{variant}.csv"
+
+
+def main(mode: str = "calibrated", part: str | None = None, merge: bool = False) -> pd.DataFrame | None:
+    """全ケースを計算する。part="case:variant" ならその組だけ計算して途中結果に保存し、
+    merge=True なら途中結果をまとめて最終の出力にする."""
+    pairs = [(c, v) for c, vs in CASES.items() for v in vs]
+    if part:
+        c, v = part.split(":")
+        out = part_path(c, v, mode)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        run(c, v, mode).to_csv(out, index=False)
+        print(f"→ {out}")
+        return None
+    if merge:
+        res = pd.concat([pd.read_csv(part_path(c, v, mode)) for c, v in pairs], ignore_index=True)
+    else:
+        res = pd.concat([run(c, v, mode) for c, v in pairs], ignore_index=True)
     res = res.merge(published(), on=["case", "variant", "var", "year"], how="left")
     out = ROOT / "output" / f"chuuchouki_sensitivity{'' if mode == 'calibrated' else '_' + mode}.csv"
     res.to_csv(out, index=False)
@@ -161,5 +179,7 @@ if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", default="calibrated", choices=["calibrated", "faithful"])
+    ap.add_argument("--part", help="case:variant（例 tfp:kako）だけ計算する（途中結果に保存）")
+    ap.add_argument("--merge", action="store_true", help="途中結果をまとめる")
     a = ap.parse_args()
-    main(a.mode)
+    main(a.mode, a.part, a.merge)

@@ -20,3 +20,9 @@ data/raw/*.xlsx
 data/processed/baseline*.pkl
 data/processed/variables.json
 
+
+# run_all.py --next の途中結果
+output/parts/
+
+# 配布用の ZIP（tools/make_dist.py で作り、GitHub の Releases に載せる）
+dist/
