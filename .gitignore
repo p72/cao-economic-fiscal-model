@@ -24,8 +24,6 @@ data/processed/variables.json
 # run_all.py --next の途中結果
 output/parts/
 
-# 配布用の ZIP（tools/make_dist.py で作り、GitHub の Releases に載せる）
-dist/
 
 # 社人研の将来推計人口（src/fetch_ipss.py で再取得できる）
 data/raw/ipss/
