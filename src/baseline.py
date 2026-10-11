@@ -190,6 +190,31 @@ def make(model: Model | None = None, verbose: bool = True, mode: str = "calibrat
         print(f"2024年度の値: 既知 {len(known)}、式で埋める {len(unknown)}")
     guess = {v: 1.0 for v in unknown}
     data = {}
+    for _ in range(2 if m.fiscal == "port" else 1):
+        guess = solve_base_year(m, d0, known, unknown, guess)
+        if m.fiscal == "port":
+            # 臨時財政対策債（既往債の元利償還金分等）の計画値 ZP_LGBR2 は、既発債分 ZP_LGBR2N と交付税特会借入金の
+            # 利払費分 ZP_LGBR2Y（＝Z_GTLR）などの和。2024年度の計画額（4,544億円）を既発債分に全部入れると利払費分が
+            # 二重に入り、差が誤差項に入る。ZP_LGBR2 は0を下限とする式（@recode）なので、誤差項が残ると増税ケースなどで
+            # 臨時財政対策債がマイナス（＝買入消却）になり、地方債残高が減りすぎる。差を既発債分から引いて誤差項を0にする
+            x = sum(guess.get(v, d0.get(v, 0.0)) for v in ("ZP_LGBR2N", "ZP_LGBR2X", "ZP_LGBR2Y", "ZP_LGBR2Z"))
+            d0["ZP_LGBR2NX"] -= x - d0["ZP_LGBR2"]
+    vals = {**d0, **guess}
+    data = {v: path(v, vals[v]) for v in allv if v != "M_TIME"}
+    data["M_TIME"] = path("M_TIME", 0.0)
+    if m.fiscal == "port":
+        bond_overrides(m, data)
+        bond_forward(m, data)
+    s = Solver(m, data)
+    for t in range(BASE_YEAR, LAST + 1):
+        for eq in m.eqs:
+            s.calibrate(eq, t)
+    return m, data, s.af
+
+
+def solve_base_year(m: Model, d0: dict, known: set, unknown: list, guess: dict) -> dict:
+    """値がない内生変数の2024年度の値を、その年の式を解いて埋める（反復）."""
+    allv = set(m.endog) | set(m.exog())
     for _ in range(6):
         vals = {**d0, **guess}
         data = {v: path(v, vals[v]) for v in allv if v != "M_TIME"}
@@ -205,17 +230,7 @@ def make(model: Model | None = None, verbose: bool = True, mode: str = "calibrat
         guess = new
         if diff < 1e-8:
             break
-    vals = {**d0, **guess}
-    data = {v: path(v, vals[v]) for v in allv if v != "M_TIME"}
-    data["M_TIME"] = path("M_TIME", 0.0)
-    if m.fiscal == "port":
-        bond_overrides(m, data)
-        bond_forward(m, data)
-    s = Solver(m, data)
-    for t in range(BASE_YEAR, LAST + 1):
-        for eq in m.eqs:
-            s.calibrate(eq, t)
-    return m, data, s.af
+    return guess
 
 
 def main(mode: str = "calibrated", fiscal: str = "simple", variant: str = "standard") -> None:
