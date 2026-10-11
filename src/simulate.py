@@ -128,8 +128,35 @@ def hold_real_g(s: Solver, case: int, k: int, t: int, base: dict, exo: set[str],
         s.solve_year(t, pinned=exo, calibrate_pinned=False)
 
 
+# 移植版の増税ケース: 増税する税（目標）と、動かす政策変数、政策変数1単位あたりの税収の増え方
+TAX_LEVER = {
+    3: ("Z_TXBG", "Z_RTYCVH", lambda d, t: d["M_YCVS"][t]),   # 法人税（国）← 法人税率
+    4: ("Z_TXAG", "Z_ADJTXAG", lambda d, t: 1.0),             # 所得税（国）← 所得税の調整項
+}
+
+
+def hold_tax(s: Solver, case: int, t: int, base: dict, exo: set[str], n_iter: int = 8) -> None:
+    """移植版: 増税ケース（③④）の税収の増加を、その年の名目GDP（ショック後）の1%に保つ.
+
+    資料は「名目ＧＤＰの１％相当を増税し、そのＧＤＰ対比で見た税収の水準を継続させる」。税率や調整項を標準ケースの
+    名目GDPで決めて与えるだけだと、課税ベース（企業所得・賃金）が減る分だけ税収の増加が1%を下回るので、
+    税収の増加が目標になるまで政策変数を直し、その年を解き直す。
+    """
+    if case not in TAX_LEVER:
+        return
+    tax, lever, slope = TAX_LEVER[case]
+    data = s.data
+    for _ in range(n_iter):
+        gap = 0.01 * data["M_GDPV"][t] - (data[tax][t] - base[tax][t])
+        if abs(gap) < 0.05:   # 10億円単位で 0.05 未満なら打ち切る
+            break
+        data[lever][t] += gap / slope(data, t)
+        s.solve_year(t, pinned=exo, calibrate_pinned=False)
+
+
 def extra(data: dict, t: int) -> dict[str, float]:
-    return {"TAXAGDP": (data["M_TAXV"][t] + data["Z_TXOH"][t]) / data["M_GDPV"][t] * 100}
+    # 資料の「税収（ＳＮＡベース）」。原典の M_TAXC は相続税等（Z_TXOH、SNA では資本移転）を除く
+    return {"TAXAGDP": data["M_TAXV"][t] / data["M_GDPV"][t] * 100}
 
 
 def run(case: int, model=None, base_data=None, af=None) -> pd.DataFrame:
@@ -143,7 +170,9 @@ def run(case: int, model=None, base_data=None, af=None) -> pd.DataFrame:
     for k, t in enumerate(YEARS):
         s.solve_year(t, pinned=exo, calibrate_pinned=False)
         if fiscal == "port":
-            hold_real_g(s, case, k, t, base_data, exo)
+            for _ in range(3):
+                hold_tax(s, case, t, base_data, exo)
+                hold_real_g(s, case, k, t, base_data, exo)
     rows = []
     for k, t in enumerate(YEARS):
         bx, sx = extra(base_data, t), extra(data, t)
