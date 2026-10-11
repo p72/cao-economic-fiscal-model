@@ -531,6 +531,14 @@ def run(case: str, mode: str = "calibrated") -> pd.DataFrame:
                 and set(eq.vars) & bond_vars and 2024 in af[eq.name]):
             for t in YEARS:
                 af[eq.name][t] = af[eq.name][2024]
+    for t in YEARS:
+        # 交付税特会借入金残高は前年度末残高＋借入−償還の積み上げの式。標準ケースの経路（名目成長率で伸びる）に合わせた
+        # 誤差項（毎年約1兆円）が残ると、償還計画どおりに減らずに残高が増え続けるので0にする
+        af["Z_SPB"][t] = 0.0
+        # 地方債の発行額は「地方債計画×Z_LGB$」で、Z_LGB$ は2024年度の決算÷計画（1.4）。決算には補正予算に伴う発行が
+        # 入っているので、国の歳出の基金からの支出と同じく、2027年度以降は1を上回る分が毎年 FUND_DECAY の割合で残るとする
+        if t >= 2027:
+            data["Z_LGB$"][t] = 1 + (data["Z_LGB$"][2026] - 1) * FUND_DECAY ** (t - 2026)
     neutral = {v: dict(af[v]) for _, v in TARGETS if v not in DATA_CTRL}
     LG_OFFSET["v"] = data["Z_LGEXTC"][2024] / 1000 - FISCAL_PUB[case]["地方の歳出"][0]
     LG_OFFSET["oh"] = data["Z_REVOH"][2024] / 1000 - FISCAL_PUB[case]["国のその他収入"][0]
