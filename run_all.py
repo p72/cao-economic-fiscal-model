@@ -1,6 +1,6 @@
 """データの取得から、乗数の計算・図の作成までを順に実行する.
 
-    python run_all.py          # 主な結果（移植版の乗数表、中長期試算の感応度分析）。約15〜20分
+    python run_all.py          # 主な結果（移植版の乗数表、中長期試算の感応度分析）。約40〜50分
     python run_all.py --all    # README のすべての結果（4通りの乗数表、シナリオの図、主要計数表の再現も）。約2〜3時間
     python run_all.py --next   # 次の1単位（長くて70秒程度）だけ実行する。「すべて完了」と出るまで繰り返す
     python run_all.py --list   # 実行する単位の一覧と進み具合
@@ -39,6 +39,8 @@ def units(all_results: bool) -> list[tuple[str, str, list[str]]]:
     for mode, fiscal in configs:
         opt = ["--mode", mode, "--fiscal", fiscal]
         u.append((f"標準ケースを作る（{mode}、{fiscal}）", "baseline.py", opt))
+        if (mode, fiscal) == ("calibrated", "port"):   # 乗数は中長期試算の成長移行ケースの2031年度から計算する
+            u += proj_units(("seicho",))
         for c in SIM_CASES:
             u.append((f"乗数を計算（{mode}、{fiscal}、ケース{c}）", "simulate.py", opt + ["--case", str(c)]))
         u.append((f"乗数をまとめる（{mode}、{fiscal}）", "simulate.py", opt + ["--merge"]))
@@ -55,14 +57,21 @@ def units(all_results: bool) -> list[tuple[str, str, list[str]]]:
         u.append((f"中長期試算の感応度分析を計算（{p}）", "chuuchouki.py", ["--part", p]))
     u.append(("中長期試算の感応度分析をまとめる", "chuuchouki.py", ["--merge"]))
     u.append(("中長期試算の感応度分析の図", "plot_chuuchouki.py", []))
-    if all_results:   # 主要計数表の再現は1ケース20〜30分かかるので --all のときだけ
-        u.append(("将来推計人口を取得（社人研）", "fetch_ipss.py", []))
-        for v in ("proj_kako", "proj_seicho"):
-            u.append((f"標準ケースを作る（主要計数表の {v}）", "baseline.py",
-                      ["--mode", "calibrated", "--fiscal", "port", "--variant", v]))
-        for c in ("kako", "seicho", "koseicho"):
-            u.append((f"主要計数表を再現（{c}）", "projection.py", ["--case", c]))
+    if all_results:
+        done = {key(x) for x in u}
+        u += [x for x in proj_units(("kako", "seicho", "koseicho")) if key(x) not in done]
         u.append(("主要計数表の表と図", "plot_projection.py", []))
+    return u
+
+
+def proj_units(cases: tuple[str, ...]) -> list[tuple[str, str, list[str]]]:
+    """中長期試算の主要計数表の再現（1ケース20〜30分）。高成長実現は成長移行の後."""
+    u = [("将来推計人口を取得（社人研）", "fetch_ipss.py", [])]
+    for v in sorted({"proj_seicho" if c == "koseicho" else f"proj_{c}" for c in cases}):
+        u.append((f"標準ケースを作る（主要計数表の {v}）", "baseline.py",
+                  ["--mode", "calibrated", "--fiscal", "port", "--variant", v]))
+    for c in cases:
+        u.append((f"主要計数表を再現（{c}）", "projection.py", ["--case", c]))
     return u
 
 

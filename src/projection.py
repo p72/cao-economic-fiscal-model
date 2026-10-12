@@ -595,9 +595,11 @@ def run(case: str, mode: str = "calibrated") -> pd.DataFrame:
                 pickle.dump({"data": data, "af": af, "t": t}, fdbg)
         print(f"{case} {t}: 実質 {item_values(data, t)['実質GDP成長率']:.2f}% 名目GDP {data['M_GDPV'][t] / 1000:.1f}兆円 "
               f"PB {data['M_PBGAGDPV'][t]:.2f} 残高比 {data['Z_DEBTAGDP'][t]:.1f}", flush=True)
-    if DEBUG_DIR:
-        with (Path(DEBUG_DIR) / f"proj_state_{case}.pkl").open("wb") as f:
-            pickle.dump({"data": data, "af": af}, f)
+    # 最終状態は、乗数表（simulate.py、成長移行ケースの2031年度から）と消費税5%・一律給付金のシナリオの標準ケースに使う
+    state_dir = Path(DEBUG_DIR) if DEBUG_DIR else ROOT / "output" / "parts"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    with (state_dir / f"proj_state_{case}.pkl").open("wb") as f:
+        pickle.dump({"data": data, "af": af}, f)
     if case == "seicho":   # 高成長実現ケースで使う利払費の誤差項
         import json
         PINT_AF_FILE.write_text(json.dumps({t: af["Z_PINTBON"][t] for t in YEARS}), encoding="utf-8")

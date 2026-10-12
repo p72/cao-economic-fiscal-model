@@ -1,6 +1,12 @@
 """公表乗数表と同じ8ケースのショックを与え、標準ケースからの乖離を計算する.
 
-ベースライン（baseline.py）のアドファクターを固定したまま、2026年度（1期目）から5年間を解く。
+ベースラインのアドファクターを固定したまま、1期目から5年間を解く。
+資料集は「内挿期間においてインパクトを与えたものではなく、…外挿期間において GDP ギャップがゼロのまま推移すると
+仮定した場合の標準ケース」で乗数を計算している。移植版・calibrated は、中長期試算の再現経路（成長移行ケース、
+projection.py）の2031年度から5年間をショックの期間とする（PROJ_START）。この時期は地方の財源不足がなく
+（臨時財政対策債 0、財源対策債の縮減）、地方の収支の増減は地方債ではなく積立金で受け止められる。2026年度から
+ショックを与えると地方は赤字の局面で、地方の赤字がそのまま地方債になり、公債等残高比の動きが公表値の1.5〜2倍になる。
+それ以外（簡略版、faithful）は標準ケース（baseline.py）の2026年度から5年間を解く。
 出力: output/multipliers.csv（calibrated）、output/multipliers_faithful.csv（faithful）
       列: case, var, period, model, published
 """
@@ -20,6 +26,7 @@ from spec import build
 ROOT = Path(__file__).resolve().parents[1]
 START, N = 2026, 5
 YEARS = list(range(START, START + N))
+PROJ_START, PROJ_CASE = 2031, "seicho"   # 移植版・calibrated のショックの期間と、標準ケースにする中長期試算のケース
 
 PCT = ["M_GDP", "M_CP", "M_IFP", "M_IHP", "M_G", "M_XGS", "M_MGS", "M_FXS", "M_GDPP", "M_PGDP", "M_CPIG",
        "M_LE", "M_GDPV", "M_NIV", "M_YDV", "M_W"]
@@ -34,6 +41,31 @@ def load(mode: str = "calibrated", fiscal: str = "simple"):
     with BL.out_path(mode, fiscal).open("rb") as f:
         b = pickle.load(f)
     return b["data"], b["af"]
+
+
+def uses_proj(mode: str, fiscal: str) -> bool:
+    return mode == "calibrated" and fiscal == "port"
+
+
+def load_base(mode: str, fiscal: str):
+    """乗数の標準ケース（data, af）と、ショックを与える年度."""
+    if not uses_proj(mode, fiscal):
+        data, af = load(mode, fiscal)
+        return data, af, YEARS
+    from ctax5 import state   # 中長期試算の再現経路の最終状態（なければ projection.py を実行して作る）
+    st = state(PROJ_CASE)
+    af = copy.deepcopy(st["af"])
+    af.setdefault("Z_EXPX35E", {})
+    return st["data"], af, list(range(PROJ_START, PROJ_START + N))
+
+
+def build_model(mode: str, fiscal: str):
+    m = build(mode, fiscal)
+    if uses_proj(mode, fiscal):   # projection.py と同じ定義式を加える
+        from spec import compile_eq
+        m.eqs.append(compile_eq("Z_EXPX35E", "Z_EXPX35E=Z_EXPX35+Z_ADJEXPX35E"))
+        m.meta["Z_EXPX35E"] = {"label": "（追加: その他一般歳出の SNA 用）", "block": "fiscal", "estimated": False}
+    return m
 
 
 def gov_split(data: dict, t: int) -> dict[str, float]:
@@ -66,11 +98,11 @@ def gov_port(base: dict, t: int, dg: float) -> dict[str, float]:
     }
 
 
-def shock(case: int, data: dict, base: dict, fiscal: str = "simple") -> set[str]:
+def shock(case: int, data: dict, base: dict, fiscal: str = "simple", years: list[int] = YEARS) -> set[str]:
     """data を書き換えてショックを与える。外生化する内生変数の集合を返す."""
     exo = set()
     port = fiscal == "port"
-    for k, t in enumerate(YEARS):
+    for k, t in enumerate(years):
         if case in (1, 2) and (case == 2 or k == 0):
             dg = 0.01 * base["M_GDP"][t]
             if port:
@@ -159,22 +191,30 @@ def extra(data: dict, t: int) -> dict[str, float]:
     return {"TAXAGDP": data["M_TAXV"][t] / data["M_GDPV"][t] * 100}
 
 
-def run(case: int, model=None, base_data=None, af=None) -> pd.DataFrame:
+def solve(s: Solver, t: int, exo: set[str]) -> None:
+    """その年を解く。収束しないときは歩幅を小さくして解き直す（projection.solve と同じ）."""
+    try:
+        s.solve_year(t, pinned=exo, calibrate_pinned=False)
+    except (RuntimeError, ValueError, OverflowError, ZeroDivisionError):
+        s.solve_year(t, pinned=exo, calibrate_pinned=False, omegas=(0.2,), max_iter=3000)
+
+
+def run(case: int, model=None, base_data=None, af=None, years: list[int] = YEARS) -> pd.DataFrame:
     m = model or build()
     if base_data is None:
         base_data, af = load()
     data = copy.deepcopy(base_data)
     fiscal = getattr(m, "fiscal", "simple")
-    exo = shock(case, data, base_data, fiscal)
+    exo = shock(case, data, base_data, fiscal, years)
     s = Solver(m, data, af)
-    for k, t in enumerate(YEARS):
-        s.solve_year(t, pinned=exo, calibrate_pinned=False)
+    for k, t in enumerate(years):
+        solve(s, t, exo)
         if fiscal == "port":
             for _ in range(3):
                 hold_tax(s, case, t, base_data, exo)
                 hold_real_g(s, case, k, t, base_data, exo)
     rows = []
-    for k, t in enumerate(YEARS):
+    for k, t in enumerate(years):
         bx, sx = extra(base_data, t), extra(data, t)
         for v in PCT:
             rows.append((case, v, k + 1, (data[v][t] / base_data[v][t] - 1) * 100))
@@ -207,20 +247,20 @@ def main(mode: str = "calibrated", fiscal: str = "simple", case: int | None = No
     if merge:
         res = pd.concat([pd.read_csv(part_path(mode, fiscal, c)) for c in P.CASES], ignore_index=True)
         return finish(res, mode, fiscal)
-    m = build(mode, fiscal)
-    base_data, af = load(mode, fiscal)
+    m = build_model(mode, fiscal)
+    base_data, af, years = load_base(mode, fiscal)
     if case is not None:
-        res = run(case, m, base_data, af)
+        res = run(case, m, base_data, af, years)
         out = part_path(mode, fiscal, case)
         out.parent.mkdir(parents=True, exist_ok=True)
         res.to_csv(out, index=False)
         print(f"→ {out}")
         return None
     # 標準ケースがそのまま再現されることを確認する
-    chk = run(0, m, base_data, af)
+    chk = run(0, m, base_data, af, years)
     worst = chk["model"].abs().max()
     print(f"ショックなしの乖離の最大値: {worst:.2e}")
-    res = pd.concat([run(c, m, base_data, af) for c in P.CASES], ignore_index=True)
+    res = pd.concat([run(c, m, base_data, af, years) for c in P.CASES], ignore_index=True)
     return finish(res, mode, fiscal)
 
 
