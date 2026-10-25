@@ -112,8 +112,8 @@ def shock(case: int, data: dict, base: dict, fiscal: str = "simple", years: list
                 for v, w in gov_split(base, t).items():
                     data[v][t] = base[v][t] + w * dg
         elif case == 3:
-            if port:  # 法人税（国）の実効税率を、税収が名目GDPの1%増えるだけ引き上げる
-                data["Z_RTYCVH"][t] = base["Z_RTYCVH"][t] + 0.01 * base["M_GDPV"][t] / base["M_YCVS"][t]
+            if port:  # 国の法人税率を、法人課税（国・地方）の税収が名目GDPの1%増えるだけ引き上げる（hold_tax で合わせる）
+                data["Z_RTYCVH"][t] = base["Z_RTYCVH"][t] + 0.01 * base["M_GDPV"][t] / (base["M_YCVS"][t] * 1.35)
             else:
                 data["Z_TYCVX"][t] = 0.01 * base["M_GDPV"][t]
         elif case == 4:
@@ -161,8 +161,11 @@ def hold_real_g(s: Solver, case: int, k: int, t: int, base: dict, exo: set[str],
 
 
 # 移植版の増税ケース: 増税する税（目標）と、動かす政策変数、政策変数1単位あたりの税収の増え方
+# ケース③は法人課税の合計（国の法人税・地方法人税、地方の法人住民税・事業税）。国の法人税率を上げると地方の法人課税も
+# 同じ率で増える（Z_TXBREF=Z_TXBG）ので、合計が名目GDPの1%になるよう国の税率を決める
+CORP_TAX = ("Z_TXBG", "Z_TXCLT", "Z_TXCL", "Z_TXFL", "Z_TXFLT")
 TAX_LEVER = {
-    3: ("Z_TXBG", "Z_RTYCVH", lambda d, t: d["M_YCVS"][t]),   # 法人税（国）← 法人税率
+    3: (CORP_TAX, "Z_RTYCVH", lambda d, t: d["M_YCVS"][t] * 1.35),   # 法人課税（国・地方）← 国の法人税率
     4: ("Z_TXAG", "Z_ADJTXAG", lambda d, t: 1.0),             # 所得税（国）← 所得税の調整項
 }
 
@@ -179,7 +182,8 @@ def hold_tax(s: Solver, case: int, t: int, base: dict, exo: set[str], n_iter: in
     tax, lever, slope = TAX_LEVER[case]
     data = s.data
     for _ in range(n_iter):
-        gap = 0.01 * data["M_GDPV"][t] - (data[tax][t] - base[tax][t])
+        taxes = tax if isinstance(tax, tuple) else (tax,)
+        gap = 0.01 * data["M_GDPV"][t] - sum(data[v][t] - base[v][t] for v in taxes)
         if abs(gap) < 0.05:   # 10億円単位で 0.05 未満なら打ち切る
             break
         data[lever][t] += gap / slope(data, t)

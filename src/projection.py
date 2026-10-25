@@ -347,6 +347,10 @@ GAP: dict = {}
 # 2027年度 −5.2兆円、2028年度 −3.5〜−3.8兆円で、2029年度以降は −2.4兆円前後で落ち着く。落ち着いた値を上回る部分
 # （基金からの支出）は2027年度に約3割、2028年度に約1割強残るので、毎年3割ずつ残るとする
 FUND_DECAY = 0.3
+# 基金からの支出は、過去の補正予算で積んだ基金を取り崩すもので、その年の国債の発行にはならない。2027年度以降、
+# 国のPB対象経費（予算）は資料どおりにし、基金からの支出は SNA の支出（Z_ADJEXPX35E）だけに入れる。
+# False にすると、基金からの支出を予算の歳出に足す（国債の発行が増え、公債等残高比が資料より高く出る）
+FUND_SNA_ONLY = True
 
 
 def item_values(data: dict, t: int) -> dict[str, float]:
@@ -387,13 +391,20 @@ def item_values(data: dict, t: int) -> dict[str, float]:
     }
 
 
+def fund_gap(name: str, t: int) -> float:
+    """2027年度以降に目標へ足す、2026年度の歳出のモデルと資料の差（基金からの支出）の残り."""
+    if FUND_SNA_ONLY and name == "国のPB対象経費" and t > 2026:
+        return 0.0
+    return GAP.get(name, 0.0) * FUND_DECAY ** (t - 2026)
+
+
 def fit_year(s: Solver, t: int, case: str, sweeps: int = 16, tol: float = 0.01, targets=None) -> None:
     """2025・2026年度: 目標の値になるよう、対応する式の誤差項（所得税・国債は調整項）を決める.
 
     各目標はほぼ対応する1つの調整項だけで動くので、目標を1つずつ割線法で合わせ、全体を何周か繰り返す。
     """
     targets = targets or TARGETS
-    tgt = {name: target(case, name, t) + GAP.get(name, 0.0) * FUND_DECAY ** (t - 2026) for name, _ in targets}
+    tgt = {name: target(case, name, t) + fund_gap(name, t) for name, _ in targets}
     step0 = {"M_RGB": 0.1, "M_RCO": 0.1, "Z_PINTBON": 1000.0, "Z_TXL": 500.0, "Z_DST": 500.0, "Z_ADJTXAG": 2000.0, "Z_REVOHADJ": 1000.0, "Z_GBNML2": 10000.0, "M_GDPP": 0.002, "Z_ADJEXPX35": 2000.0,
              "Z_ADJLGEXTG": 2000.0}
 
@@ -579,6 +590,8 @@ def run(case: str, mode: str = "calibrated") -> pd.DataFrame:
                     data[v][t] = data[v][2026] / data["M_GDPV"][2026] * data["M_GDPV"][t - 1]
                 else:
                     af[v][t] = neutral[v][t] + k * (af[v][2026] - neutral[v][2026])
+            if FUND_SNA_ONLY:                # 基金からの支出は SNA の支出だけに入れる（10億円）
+                data["Z_ADJEXPX35E"][t] = GAP.get("国のPB対象経費", 0.0) * 1000 * FUND_DECAY ** (t - 2026)
             if FOLLOW_MACRO:                 # 前年度の値から始めて、マクロの7項目と歳出を資料に合わせる
                 for _, v in follow_targets:
                     if v in DATA_CTRL:
