@@ -4,6 +4,8 @@
     python run_all.py --all    # README のすべての結果（4通りの乗数表、シナリオの図、主要計数表の再現も）。約2〜3時間
     python run_all.py --next   # 次の1単位（長くて70秒程度）だけ実行する。「すべて完了」と出るまで繰り返す
     python run_all.py --list   # 実行する単位の一覧と進み具合
+    python run_all.py --july   # 2026年7月の中長期試算（2040年度まで）の再現、追加財政支出なしのケース、部門別の財政収支の図。
+                               # 既定は成長戦略実現ケース①と現状投影ケース（--cases s1 s2 gen で選ぶ）。1ケース1〜3時間
 
 --next は、1回の実行時間に上限がある環境のためのもの。
 進み具合は output/parts/progress.json に記録する（--reset で最初からやり直す）。
@@ -75,6 +77,22 @@ def proj_units(cases: tuple[str, ...]) -> list[tuple[str, str, list[str]]]:
     return u
 
 
+def july_units(cases: tuple[str, ...]) -> list[tuple[str, str, list[str]]]:
+    """2026年7月の中長期試算（projection2607.py、noextra2607.py、plot_balance2607.py）."""
+    u = [("資料集（方程式リストなど）を取得", "fetch_paper.py", []),
+         ("方程式リストを読み取る", "parse_equations.py", []),
+         ("国民経済計算（2024年度年次推計）を取得", "fetch_sna.py", [])]
+    if not (ROOT / "data" / "raw" / "lfs_fy.csv").exists():
+        u.append(("労働力調査を取得（e-Stat）", "fetch_lfs.py", []))
+    u += [("将来推計人口を取得（社人研）", "fetch_ipss.py", []),
+          ("標準ケースを作る（2026年7月の試算用、国債の発行年度は2040年度まで）", "projection2607.py", ["--baseline"])]
+    for c in cases:
+        u.append((f"2026年7月の試算を再現（{c}）", "projection2607.py", ["--case", c]))
+        u.append((f"追加財政支出なしのケース（{c}）", "noextra2607.py", ["--case", c]))
+    u.append(("部門別の財政収支の図", "plot_balance2607.py", []))
+    return u
+
+
 def key(unit: tuple[str, str, list[str]]) -> str:
     return " ".join([unit[1], *unit[2]])
 
@@ -109,8 +127,14 @@ def main() -> None:
     ap.add_argument("--next", action="store_true", help="次の1単位だけ実行する")
     ap.add_argument("--list", action="store_true", help="単位の一覧と進み具合を表示する")
     ap.add_argument("--reset", action="store_true", help="--next の進み具合を消して最初からにする")
+    ap.add_argument("--july", action="store_true", help="2026年7月の中長期試算の再現と追加財政支出なしのケース")
+    ap.add_argument("--cases", nargs="+", default=["s1", "gen"], choices=["s1", "s2", "gen"],
+                    help="--july で計算するケース（既定 s1 gen）")
     a = ap.parse_args()
-    us = units(a.all)
+    us = july_units(tuple(a.cases)) if a.july else units(a.all)
+    if a.july:      # 進み具合のファイルを分ける
+        global PROGRESS
+        PROGRESS = ROOT / "output" / "parts" / f"progress_july_{'_'.join(a.cases)}.json"
     if a.reset and PROGRESS.exists():
         PROGRESS.unlink()
     done = load_progress(a.all)

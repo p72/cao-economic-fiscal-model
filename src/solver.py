@@ -64,6 +64,16 @@ class Solver:
                 f2 = float("nan")
             col[t] = x
             dfdx = (f2 - f) / h
+            if dfdx == 0 and abs(x) < 1.0:
+                # x がほぼ0だと刻み幅が小さすぎて、ほかの大きな項の丸め誤差に埋もれる。刻み幅を絶対値で取り直す
+                h = 1e-6
+                col[t] = x + h
+                try:
+                    f2 = self.residual(eq, t)
+                except (ValueError, ZeroDivisionError, OverflowError):
+                    f2 = float("nan")
+                col[t] = x
+                dfdx = (f2 - f) / h
             if not math.isfinite(dfdx) or dfdx == 0:
                 raise RuntimeError(f"{eq.name}: {var} について解けない（t={t}）")
             step = -f / dfdx

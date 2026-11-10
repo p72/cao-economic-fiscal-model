@@ -398,6 +398,11 @@ def fund_gap(name: str, t: int) -> float:
     return GAP.get(name, 0.0) * FUND_DECAY ** (t - 2026)
 
 
+# 割線法の最初の歩幅（調整項ごと。ないものは0.005）
+STEP0 = {"M_RGB": 0.1, "M_RCO": 0.1, "Z_PINTBON": 1000.0, "Z_TXL": 500.0, "Z_DST": 500.0, "Z_ADJTXAG": 2000.0, "Z_REVOHADJ": 1000.0,
+         "Z_GBNML2": 10000.0, "M_GDPP": 0.002, "Z_ADJEXPX35": 2000.0, "Z_ADJLGEXTG": 2000.0}
+
+
 def fit_year(s: Solver, t: int, case: str, sweeps: int = 16, tol: float = 0.01, targets=None) -> None:
     """2025・2026年度: 目標の値になるよう、対応する式の誤差項（所得税・国債は調整項）を決める.
 
@@ -405,8 +410,7 @@ def fit_year(s: Solver, t: int, case: str, sweeps: int = 16, tol: float = 0.01, 
     """
     targets = targets or TARGETS
     tgt = {name: target(case, name, t) + fund_gap(name, t) for name, _ in targets}
-    step0 = {"M_RGB": 0.1, "M_RCO": 0.1, "Z_PINTBON": 1000.0, "Z_TXL": 500.0, "Z_DST": 500.0, "Z_ADJTXAG": 2000.0, "Z_REVOHADJ": 1000.0, "Z_GBNML2": 10000.0, "M_GDPP": 0.002, "Z_ADJEXPX35": 2000.0,
-             "Z_ADJLGEXTG": 2000.0}
+    step0 = STEP0
 
     def get(v):
         return s.data[v][t] if v in DATA_CTRL else s.af[v][t]
