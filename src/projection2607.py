@@ -75,7 +75,7 @@ def fiscal_pub(case: str) -> dict[str, list[float]]:
     """projection.py の FISCAL_PUB と同じ名前の目標（兆円）."""
     f = D.FISCAL[case]
     out = {k: f[k] for k in ("国の税収", "国のPB対象経費", "地方の歳出", "国のその他収入", "国の利払費", "地方の税収",
-                             "地方交付税等", "地方の税収等", "地方の普通会計の基礎的財政収支")}
+                             "地方交付税等", "地方の税収等", "地方の普通会計の基礎的財政収支", "地方の公債費")}
     out["国の基礎的財政収支"] = f["国の基礎的財政収支（除く）"]
     out["地方の基礎的財政収支"] = f["地方の基礎的財政収支（除く）"]
     out["地方の一般歳出"] = [a - b for a, b in zip(out["地方の税収等"], out["地方の普通会計の基礎的財政収支"])]
@@ -104,9 +104,14 @@ def ssf_pub(case: str) -> list[float]:
 # 社会保障基金の財政収支（SNA）: 社会保障基金の財産所得（受取）の誤差項（M_YIGVFAER）で、資料から割り出した値（ssf_pub）に
 #   合わせる。モデルの年金積立金の運用収入は企業の資本収益率に連動する式で、7月の試算の「運用利回りが経済成長とともに
 #   上がる」（2024年財政検証と整合的）想定より小さく、2028〜2033年度に2〜3兆円少なく出る。
+# 地方の公債費（地方の普通会計の姿）: 2025年度末までに発行した地方債（既発債）の元金償還（B_ROP、外生）で合わせる。
+#   既発債の年度別の償還予定は公表の統計がなく、bond_port.lgb_exog_series は「残高の1/14ずつ」と推定している。この置き方では
+#   償還額が毎年7%ずつ減り（2026年度11.0兆円→2040年度3.9兆円）、地方の公債費が2028年度以降資料より毎年1兆円程度少なく、
+#   地方債の残高の減り方が遅くなって、2040年度の公債等残高比が1.4〜1.5%pt高く出た。公債費は元本の返済なので、
+#   SNA の収支（PB・財政収支）は変わらず、地方債の残高と、地方の黒字のうち積立金に回る分が変わる。
 EXTRA_FOLLOW = [("国の税収", "Z_ADJTXAG"), ("国・地方の基礎的財政収支", "M_ADJCTRPC"), ("純利払費", "M_YIGVCRLR"),
-                ("社会保障基金", "M_YIGVFAER")]
-EXTRA_FIT = [("純利払費", "M_YIGVCRLR"), ("社会保障基金", "M_YIGVFAER")]
+                ("社会保障基金", "M_YIGVFAER"), ("地方の公債費", "B_ROP")]
+EXTRA_FIT = [("純利払費", "M_YIGVCRLR"), ("社会保障基金", "M_YIGVFAER"), ("地方の公債費", "B_ROP")]
 _item_values = P.item_values
 
 
@@ -115,6 +120,7 @@ def item_values(data: dict, t: int) -> dict[str, float]:
     v["国・地方の基礎的財政収支"] = data["M_PBG"][t] / 1000
     v["純利払費"] = (data["M_PBG"][t] - data["M_BGGV"][t]) / 1000
     v["社会保障基金"] = data["M_BGFV"][t] / 1000
+    v["地方の公債費"] = data["Z_CLB"][t] / 1000
     return v
 
 
@@ -170,8 +176,8 @@ def configure() -> None:
     if EXTRA_FIT[-1] not in P.TARGETS:
         P.TARGETS = P.TARGETS + EXTRA_FIT
         P.FOLLOW_TARGETS = P.FOLLOW_TARGETS + EXTRA_FOLLOW
-    P.DATA_CTRL = P.DATA_CTRL | {"M_ADJCTRPC", "M_YIGVFAER"}
-    P.STEP0.update({"M_ADJCTRPC": 1000.0, "M_YIGVCRLR": 500.0, "M_YIGVFAER": 500.0})
+    P.DATA_CTRL = P.DATA_CTRL | {"M_ADJCTRPC", "M_YIGVFAER", "B_ROP"}
+    P.STEP0.update({"M_ADJCTRPC": 1000.0, "M_YIGVCRLR": 500.0, "M_YIGVFAER": 500.0, "B_ROP": 500.0})
     P.PINT_AF_FILE = ROOT / "data" / "processed" / "_pintbon_af_2607.json"   # 使わない（全ケースに利払費の表がある）
 
 
