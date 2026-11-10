@@ -10,8 +10,12 @@
 """
 from __future__ import annotations
 
+import os
+
 TENORS = ("01", "02", "03", "05", "10", "20", "30", "40")
-VINTAGES = tuple(range(2026, 2036))
+# 発行年度を積み上げる最後の年度。既定は2035年度（2026年1月の中長期試算）。2026年7月の試算（2040年度まで）は
+# projection2607.py が環境変数 CAO_LAST_VINTAGE=2040 を置いてから読み込む
+VINTAGES = tuple(range(2026, int(os.environ.get("CAO_LAST_VINTAGE", "2035")) + 1))
 LAST_DUMMY = 2045          # ダミー変数を用意する最後の年度（これより後に満期が来る債券は満期の項を省く）
 
 
